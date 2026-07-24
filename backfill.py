@@ -24,6 +24,7 @@ def commit_push(msg):
         sh("git", "pull", "--rebase")         # [v2] push 전에 먼저 rebase
         p = sh("git", "push")
         if p.returncode == 0: return True
+        print(f"push 재시도 {i+1}: {p.stderr.strip()[-200:]}", flush=True)   # [v3] 에러 노출
         time.sleep(random.uniform(2, 8) * (1 + i * 0.5))
     print("push 실패 10회 — 다음 커밋 때 재시도", flush=True)
     return False

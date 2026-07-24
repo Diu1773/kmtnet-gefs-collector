@@ -21,6 +21,8 @@ jobs:
         member: [0, 1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # [v3] 얕은 복제가 pull --rebase를 깨뜨림 (2026-07-24 push 전멸 원인 추정)
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

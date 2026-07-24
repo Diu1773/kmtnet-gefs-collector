@@ -16,15 +16,16 @@ def sh(*args):
     return subprocess.run(list(args), cwd=REPO, capture_output=True, text=True)
 
 def commit_push(msg):
+    import random
     sh("git", "add", "data")
     r = sh("git", "commit", "-m", msg)
     if "nothing to commit" in (r.stdout + r.stderr): return True
-    for i in range(5):
+    for i in range(10):                       # [v2] 5→10회 + 랜덤 백오프 (동시시작 경합 대응)
+        sh("git", "pull", "--rebase")         # [v2] push 전에 먼저 rebase
         p = sh("git", "push")
         if p.returncode == 0: return True
-        sh("git", "pull", "--rebase")
-        time.sleep(3 + 3 * i)
-    print("push 실패 5회 — 다음 커밋 때 재시도", flush=True)
+        time.sleep(random.uniform(2, 8) * (1 + i * 0.5))
+    print("push 실패 10회 — 다음 커밋 때 재시도", flush=True)
     return False
 
 def main():
@@ -37,6 +38,7 @@ def main():
     ap.add_argument("--commit-every-min", type=float, default=25)
     a = ap.parse_args()
     M = a.member
+    a.commit_every_min += M * 4               # [v2] 멤버별 커밋주기 어긋내기 (25,29,33,37,41분) — 경합 원천 완화
     leads = [int(x) for x in a.leads.split(",")]
     os.makedirs(DATA, exist_ok=True)
 

@@ -40,3 +40,5 @@ jobs:
           git add data/
           git commit -m "collect ${{ inputs.date }} (m=${{ inputs.members }})" || echo "no changes"
           git push
+
+# rescan touch

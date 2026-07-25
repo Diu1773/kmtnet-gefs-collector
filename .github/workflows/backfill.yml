@@ -39,4 +39,9 @@ jobs:
         run: |
           git add data/ || true
           git commit -m "backfill m${{ matrix.member }} final flush" || echo "no changes"
-          for i in 1 2 3 4 5; do git push && break || git pull --rebase; sleep 5; done
+          for i in 1 2 3 4 5 6 7 8; do
+            git push && break
+            git rebase --abort || true
+            git pull --rebase --autostash || git status --short
+            sleep $((3 + RANDOM % 10))
+          done

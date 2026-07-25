@@ -20,11 +20,15 @@ def commit_push(msg):
     sh("git", "add", "data")
     r = sh("git", "commit", "-m", msg)
     if "nothing to commit" in (r.stdout + r.stderr): return True
-    for i in range(10):                       # [v2] 5→10회 + 랜덤 백오프 (동시시작 경합 대응)
-        sh("git", "pull", "--rebase")         # [v2] push 전에 먼저 rebase
+    for i in range(10):
+        sh("git", "rebase", "--abort")                              # [v4] 잔여 rebase 정리
+        r2 = sh("git", "pull", "--rebase", "--autostash")           # [v4] 더러운 트리여도 진행
+        if r2.returncode != 0:
+            st = sh("git", "status", "--short")
+            print(f"pull 실패 {i+1}: {r2.stderr.strip()[-150:]} | status: {st.stdout.strip()[:150]}", flush=True)
         p = sh("git", "push")
         if p.returncode == 0: return True
-        print(f"push 재시도 {i+1}: {p.stderr.strip()[-200:]}", flush=True)   # [v3] 에러 노출
+        print(f"push 재시도 {i+1}: {p.stderr.strip()[-150:]}", flush=True)
         time.sleep(random.uniform(2, 8) * (1 + i * 0.5))
     print("push 실패 10회 — 다음 커밋 때 재시도", flush=True)
     return False

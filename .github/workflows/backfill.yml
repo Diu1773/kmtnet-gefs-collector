@@ -1,8 +1,6 @@
 name: GEFS backfill
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: "17 */6 * * *"   # 6시간 릴레이 (정각 혼잡 회피용 17분 오프셋)
+  workflow_dispatch:   # v1 구스펙 — 크론 제거(2026-07-25, v2로 대체). 수동 전용
 
 permissions:
   contents: write

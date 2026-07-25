@@ -1,0 +1,68 @@
+name: GEFS backfill v2
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill-v2
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        include:
+          - {member: 0, seg: "s11", start: "2017-01-01", end: "2020-08-31", stagger: 0}
+          - {member: 0, seg: "s12a", start: "2020-09-01", end: "2021-12-31", stagger: 2}
+          - {member: 0, seg: "s12b", start: "2022-01-01", end: "2022-12-31", stagger: 4}
+          - {member: 0, seg: "s12c", start: "2023-01-01", end: "2023-12-31", stagger: 6}
+          - {member: 1, seg: "s11", start: "2017-01-01", end: "2020-08-31", stagger: 8}
+          - {member: 1, seg: "s12a", start: "2020-09-01", end: "2021-12-31", stagger: 10}
+          - {member: 1, seg: "s12b", start: "2022-01-01", end: "2022-12-31", stagger: 12}
+          - {member: 1, seg: "s12c", start: "2023-01-01", end: "2023-12-31", stagger: 14}
+          - {member: 2, seg: "s11", start: "2017-01-01", end: "2020-08-31", stagger: 16}
+          - {member: 2, seg: "s12a", start: "2020-09-01", end: "2021-12-31", stagger: 18}
+          - {member: 2, seg: "s12b", start: "2022-01-01", end: "2022-12-31", stagger: 20}
+          - {member: 2, seg: "s12c", start: "2023-01-01", end: "2023-12-31", stagger: 22}
+          - {member: 3, seg: "s11", start: "2017-01-01", end: "2020-08-31", stagger: 24}
+          - {member: 3, seg: "s12a", start: "2020-09-01", end: "2021-12-31", stagger: 26}
+          - {member: 3, seg: "s12b", start: "2022-01-01", end: "2022-12-31", stagger: 28}
+          - {member: 3, seg: "s12c", start: "2023-01-01", end: "2023-12-31", stagger: 30}
+          - {member: 4, seg: "s11", start: "2017-01-01", end: "2020-08-31", stagger: 32}
+          - {member: 4, seg: "s12a", start: "2020-09-01", end: "2021-12-31", stagger: 34}
+          - {member: 4, seg: "s12b", start: "2022-01-01", end: "2022-12-31", stagger: 36}
+          - {member: 4, seg: "s12c", start: "2023-01-01", end: "2023-12-31", stagger: 38}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install --quiet herbie-data pandas numpy
+      - name: Git identity
+        run: |
+          git config user.name "gefs-collector-bot"
+          git config user.email "actions@users.noreply.github.com"
+      - name: Collect m${{ matrix.member }}/${{ matrix.seg }}
+        run: python worker_v2.py --member ${{ matrix.member }} --seg ${{ matrix.seg }} --start ${{ matrix.start }} --end ${{ matrix.end }} --budget-min 300 --stagger ${{ matrix.stagger }}
+      - name: Final flush
+        if: always()
+        run: |
+          git add data/ || true
+          git commit -m "v2 m${{ matrix.member }}/${{ matrix.seg }} final flush" || echo "no changes"
+          for i in 1 2 3 4 5 6 7 8; do
+            git push && break
+            git rebase --abort || true
+            git pull --rebase --autostash || git status --short
+            sleep $((3 + RANDOM % 10))
+          done

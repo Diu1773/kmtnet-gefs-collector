@@ -1,0 +1,58 @@
+name: watchdog
+# 자율 복구 (2026-07-25): 사람 개입 없이 수집이 계속되도록.
+#  ① 6시간 넘게 걸려 있는 유령 런 취소 (GitHub 상태 글리치 실측 2회 — 슬롯 점유로 다음 릴레이가 막힘)
+#  ② 백필이 하나도 안 돌면 즉시 재투입 (크론 스킵·concurrency 대기 복구)
+# 자기 자신은 concurrency 그룹이 달라 유령에 막히지 않고, backfill max-parallel을 15로 낮춰 슬롯 여유 확보.
+on:
+  schedule:
+    - cron: "7 * * * *"     # 매시간
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      WF: "GEFS backfill v2"
+    steps:
+      - name: 유령 런 취소 (6시간 초과)
+        run: |
+          now=$(date -u +%s)
+          for st in in_progress queued; do
+            gh api "repos/$REPO/actions/runs?status=$st&per_page=50" \
+              --jq '.workflow_runs[] | select(.name != "watchdog") | "\(.id) \(.created_at)"' > runs_$st.txt || true
+          done
+          cat runs_*.txt | sort -u > runs.txt
+          n=0
+          while read -r id created; do
+            [ -z "$id" ] && continue
+            age=$(( now - $(date -u -d "$created" +%s) ))
+            if [ "$age" -gt 21600 ]; then
+              echo "유령 취소: run $id (경과 $((age/3600))h)"
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null 2>&1 || true
+              n=$((n+1))
+            fi
+          done < runs.txt
+          echo "취소한 유령: $n건"
+      - name: 백필이 멎었으면 재투입
+        run: |
+          sleep 20   # 취소 반영 대기
+          active=$(gh api "repos/$REPO/actions/runs?per_page=30" \
+            --jq "[.workflow_runs[] | select(.name==\"$WF\" and (.status==\"in_progress\" or .status==\"queued\"))] | length")
+          echo "활성 백필 런: $active"
+          if [ "${active:-0}" -eq 0 ]; then
+            echo "→ 백필 재투입"
+            gh workflow run "$WF" --repo "$REPO"
+          else
+            echo "→ 정상 가동 중, 조치 없음"
+          fi

@@ -1,9 +1,9 @@
 name: watchdog
 # 자율 복구 — 사람 개입 없이 수집이 계속되도록.
 #  ① 정체 런 취소: 진행 중 6h 초과 / 대기 1h 초과
-#     (2026-07-26 실측: concurrency에 갇힌 좀비 queued가 '활성'으로 오인돼 밤새 6h 손실)
-#  ② 실제로 도는 백필이 0이면 즉시 재투입 (크론 스킵·대기 걸림 복구)
-# 워치독은 별도 concurrency라 유령에 안 막히고, backfill max-parallel 15로 슬롯 여유 확보.
+#  ② 실제로 도는 백필이 0이면 즉시 재투입
+# [2026-07-26 v3] 취소 반영 지연으로 '가동 중'을 오판해 재투입을 건너뛰는 버그 수정
+#   (실측: 17:11 취소 → 20초 뒤 재확인 시 아직 in_progress로 집계 → 재투입 스킵 → 백필 0 공백)
 on:
   schedule:
     - cron: "7 * * * *"     # 매시간
@@ -20,7 +20,7 @@ concurrency:
 jobs:
   guard:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -29,6 +29,7 @@ jobs:
       - name: 정체 런 취소 (진행 6h / 대기 1h)
         run: |
           now=$(date -u +%s); n=0
+          : > cancelled_ids.txt
           for pair in "in_progress:21600" "queued:3600"; do
             state="${pair%%:*}"; lim="${pair##*:}"
             gh api "repos/$REPO/actions/runs?status=$state&per_page=50" \
@@ -39,18 +40,31 @@ jobs:
               if [ "$age" -gt "$lim" ]; then
                 echo "정체 취소: run $id ($state, 경과 $((age/60))분 > $((lim/60))분)"
                 gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null 2>&1 || true
+                echo "$id" >> cancelled_ids.txt
                 n=$((n+1))
               fi
             done < runs.txt
           done
           echo "취소한 정체 런: $n건"
+          echo "CANCELLED=$n" >> "$GITHUB_ENV"
       - name: 백필이 멎었으면 재투입
         run: |
-          sleep 20   # 취소 반영 대기
-          active=$(gh api "repos/$REPO/actions/runs?per_page=30" \
-            --jq "[.workflow_runs[] | select(.name==\"$WF\" and .status==\"in_progress\")] | length")
-          echo "실제 가동 중 백필: $active"
-          if [ "${active:-0}" -eq 0 ]; then
+          # 취소가 있었으면 반영까지 넉넉히 기다리고, 취소한 런은 활성 집계에서 제외
+          if [ "${CANCELLED:-0}" -gt 0 ]; then sleep 90; else sleep 20; fi
+          active=0
+          for try in 1 2 3; do
+            ids=$(gh api "repos/$REPO/actions/runs?per_page=30" \
+              --jq "[.workflow_runs[] | select(.name==\"$WF\" and .status==\"in_progress\") | .id] | .[]" || true)
+            active=0
+            for id in $ids; do
+              grep -qx "$id" cancelled_ids.txt 2>/dev/null && continue   # 방금 취소한 건 제외
+              active=$((active+1))
+            done
+            echo "확인 $try: 가동 중 백필 $active"
+            [ "$active" -gt 0 ] && break
+            sleep 30
+          done
+          if [ "$active" -eq 0 ]; then
             echo "→ 백필 재투입"
             gh workflow run "$WF" --repo "$REPO"
           else

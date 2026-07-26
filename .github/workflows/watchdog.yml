@@ -1,8 +1,9 @@
 name: watchdog
-# 자율 복구 (2026-07-25): 사람 개입 없이 수집이 계속되도록.
-#  ① 6시간 넘게 걸려 있는 유령 런 취소 (GitHub 상태 글리치 실측 2회 — 슬롯 점유로 다음 릴레이가 막힘)
-#  ② 백필이 하나도 안 돌면 즉시 재투입 (크론 스킵·concurrency 대기 복구)
-# 자기 자신은 concurrency 그룹이 달라 유령에 막히지 않고, backfill max-parallel을 15로 낮춰 슬롯 여유 확보.
+# 자율 복구 — 사람 개입 없이 수집이 계속되도록.
+#  ① 정체 런 취소: 진행 중 6h 초과 / 대기 1h 초과
+#     (2026-07-26 실측: concurrency에 갇힌 좀비 queued가 '활성'으로 오인돼 밤새 6h 손실)
+#  ② 실제로 도는 백필이 0이면 즉시 재투입 (크론 스킵·대기 걸림 복구)
+# 워치독은 별도 concurrency라 유령에 안 막히고, backfill max-parallel 15로 슬롯 여유 확보.
 on:
   schedule:
     - cron: "7 * * * *"     # 매시간
@@ -25,31 +26,30 @@ jobs:
       REPO: ${{ github.repository }}
       WF: "GEFS backfill v2"
     steps:
-      - name: 유령 런 취소 (6시간 초과)
+      - name: 정체 런 취소 (진행 6h / 대기 1h)
         run: |
-          now=$(date -u +%s)
-          for st in in_progress queued; do
-            gh api "repos/$REPO/actions/runs?status=$st&per_page=50" \
-              --jq '.workflow_runs[] | select(.name != "watchdog") | "\(.id) \(.created_at)"' > runs_$st.txt || true
+          now=$(date -u +%s); n=0
+          for pair in "in_progress:21600" "queued:3600"; do
+            state="${pair%%:*}"; lim="${pair##*:}"
+            gh api "repos/$REPO/actions/runs?status=$state&per_page=50" \
+              --jq '.workflow_runs[] | select(.name != "watchdog") | "\(.id) \(.created_at)"' > runs.txt || true
+            while read -r id created; do
+              [ -z "$id" ] && continue
+              age=$(( now - $(date -u -d "$created" +%s) ))
+              if [ "$age" -gt "$lim" ]; then
+                echo "정체 취소: run $id ($state, 경과 $((age/60))분 > $((lim/60))분)"
+                gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null 2>&1 || true
+                n=$((n+1))
+              fi
+            done < runs.txt
           done
-          cat runs_*.txt | sort -u > runs.txt
-          n=0
-          while read -r id created; do
-            [ -z "$id" ] && continue
-            age=$(( now - $(date -u -d "$created" +%s) ))
-            if [ "$age" -gt 21600 ]; then
-              echo "유령 취소: run $id (경과 $((age/3600))h)"
-              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null 2>&1 || true
-              n=$((n+1))
-            fi
-          done < runs.txt
-          echo "취소한 유령: $n건"
+          echo "취소한 정체 런: $n건"
       - name: 백필이 멎었으면 재투입
         run: |
           sleep 20   # 취소 반영 대기
           active=$(gh api "repos/$REPO/actions/runs?per_page=30" \
-            --jq "[.workflow_runs[] | select(.name==\"$WF\" and (.status==\"in_progress\" or .status==\"queued\"))] | length")
-          echo "활성 백필 런: $active"
+            --jq "[.workflow_runs[] | select(.name==\"$WF\" and .status==\"in_progress\")] | length")
+          echo "실제 가동 중 백필: $active"
           if [ "${active:-0}" -eq 0 ]; then
             echo "→ 백필 재투입"
             gh workflow run "$WF" --repo "$REPO"

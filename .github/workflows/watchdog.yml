@@ -1,6 +1,6 @@
 name: watchdog
 # 자율 복구 — 사람 개입 없이 수집이 계속되도록.
-#  ① 정체 런 취소: 진행 중 6h 초과 / 대기 1h 초과
+#  ① 정체 런 취소: 진행 중 6h 초과 / 대기 4h 초과
 #  ② 실제로 도는 백필이 0이면 즉시 재투입
 # [2026-07-26 v3] 취소 반영 지연으로 '가동 중'을 오판해 재투입을 건너뛰는 버그 수정
 #   (실측: 17:11 취소 → 20초 뒤 재확인 시 아직 in_progress로 집계 → 재투입 스킵 → 백필 0 공백)
@@ -30,7 +30,7 @@ jobs:
         run: |
           now=$(date -u +%s); n=0
           : > cancelled_ids.txt
-          for pair in "in_progress:21600" "queued:3600"; do
+          for pair in "in_progress:21600" "queued:14400"; do   # [2026-07-27] queued 1h→4h: 무료 러너 대기는 정상인데 멀쩡한 잡을 죽여 재큐잉 루프 유발
             state="${pair%%:*}"; lim="${pair##*:}"
             gh api "repos/$REPO/actions/runs?status=$state&per_page=50" \
               --jq '.workflow_runs[] | select(.name != "watchdog") | "\(.id) \(.created_at)"' > runs.txt || true

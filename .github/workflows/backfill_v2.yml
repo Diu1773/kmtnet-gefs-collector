@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      max-parallel: 15   # 20→15 (2026-07-25): watchdog이 뜰 슬롯 여유 확보 — 계정 동시잡 20 제한
+      max-parallel: 10   # 15→10 (2026-07-27): 무료 러너 큐 대기 완화 — 동시 요청이 많을수록 pending이 길어져 실효 처리량이 떨어짐   # 20→15 (2026-07-25): watchdog이 뜰 슬롯 여유 확보 — 계정 동시잡 20 제한
       matrix:
         include:
           - {member: 0, seg: "s11", start: "2017-01-01", end: "2020-08-31", stagger: 0}

@@ -6,7 +6,7 @@ name: watchdog
 #   (실측: 17:11 취소 → 20초 뒤 재확인 시 아직 in_progress로 집계 → 재투입 스킵 → 백필 0 공백)
 on:
   schedule:
-    - cron: "7 * * * *"     # 매시간
+    - cron: "7,37 * * * *"   # 30분마다 (매시간은 크론 스킵 시 공백이 큼 — 2026-07-27 실측: 05·06·07시 스킵)
   workflow_dispatch:
 
 permissions:

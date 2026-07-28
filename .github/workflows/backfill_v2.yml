@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      max-parallel: 5    # 20→15→5 (2026-07-27): 무료 러너 큐가 병목 — 동시 요청을 줄여 '확실히 받아서 5시간 꽉 채우는' 쪽이 실효 처리량 우위   # 20→15 (2026-07-25): watchdog이 뜰 슬롯 여유 확보 — 계정 동시잡 20 제한
+      max-parallel: 10   # 5→10 (2026-07-28 사용자 지시): 병렬5는 안정적이나 ~800단위/h로 느림 — 속도·안정 균형점   # 20→15 (2026-07-25): watchdog이 뜰 슬롯 여유 확보 — 계정 동시잡 20 제한
       matrix:
         include:
           - {member: 0, seg: "s11", start: "2017-01-01", end: "2020-08-31", stagger: 0}

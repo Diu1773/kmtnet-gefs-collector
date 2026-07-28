@@ -38,6 +38,14 @@ jobs:
               [ -z "$id" ] && continue
               age=$(( now - $(date -u -d "$created" +%s) ))
               if [ "$age" -gt "$lim" ]; then
+                # [2026-07-28] 유령 queued 방어: 런 상태가 queued로 오표기돼도 잡이 실제로 돌면 건강한 런
+                #   (실측: 30320019939 — 잡 10개 in_progress·커밋 지속인데 런 상태 3h49m queued)
+                act=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" \
+                  --jq '[.jobs[] | select(.status=="in_progress")] | length' 2>/dev/null || echo 0)
+                if [ "${act:-0}" -gt 0 ]; then
+                  echo "스킵: run $id ($state $((age/60))분) — 잡 $act개 실행 중 (유령 상태, 건강)"
+                  continue
+                fi
                 echo "정체 취소: run $id ($state, 경과 $((age/60))분 > $((lim/60))분)"
                 gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null 2>&1 || true
                 echo "$id" >> cancelled_ids.txt
@@ -53,14 +61,17 @@ jobs:
           if [ "${CANCELLED:-0}" -gt 0 ]; then sleep 90; else sleep 20; fi
           active=0
           for try in 1 2 3; do
+            # [2026-07-28] 런 상태는 유령(오표기)일 수 있어 in_progress·queued 둘 다 잡 단위로 실측
             ids=$(gh api "repos/$REPO/actions/runs?per_page=30" \
-              --jq "[.workflow_runs[] | select(.name==\"$WF\" and .status==\"in_progress\") | .id] | .[]" || true)
+              --jq "[.workflow_runs[] | select(.name==\"$WF\" and (.status==\"in_progress\" or .status==\"queued\")) | .id] | .[]" || true)
             active=0
             for id in $ids; do
               grep -qx "$id" cancelled_ids.txt 2>/dev/null && continue   # 방금 취소한 건 제외
-              active=$((active+1))
+              act=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" \
+                --jq '[.jobs[] | select(.status=="in_progress")] | length' 2>/dev/null || echo 0)
+              [ "${act:-0}" -gt 0 ] && active=$((active+1))
             done
-            echo "확인 $try: 가동 중 백필 $active"
+            echo "확인 $try: 실제 가동 중 백필 런 $active"
             [ "$active" -gt 0 ] && break
             sleep 30
           done

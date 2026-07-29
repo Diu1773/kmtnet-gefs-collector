@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      max-parallel: 10   # 5→10 (2026-07-28 사용자 지시): 병렬5는 안정적이나 ~800단위/h로 느림 — 속도·안정 균형점   # 20→15 (2026-07-25): watchdog이 뜰 슬롯 여유 확보 — 계정 동시잡 20 제한
+      max-parallel: 11   # 10→11 (2026-07-29 사용자 지시): m4 전용 레인(s11b) 추가분   # 5→10 (2026-07-28): 병렬5는 ~800단위/h로 느림   # 20→15 (2026-07-25): watchdog 슬롯 여유 — 계정 동시잡 20 제한
       matrix:
         include:
           - {member: 0, seg: "s11", start: "2017-01-01", end: "2020-08-31", stagger: 0}
@@ -25,6 +25,10 @@ jobs:
           - {member: 2, seg: "s11", start: "2017-01-01", end: "2020-08-31", stagger: 4}
           - {member: 3, seg: "s11", start: "2017-01-01", end: "2020-08-31", stagger: 6}
           - {member: 4, seg: "s11", start: "2017-01-01", end: "2020-08-31", stagger: 8}
+          # m4 전용 추가 레인 (2026-07-29): m4가 s11에서 크게 뒤처짐(2018-01까지).
+          # 같은 세그먼트를 뒤쪽 구간부터 파서 앞뒤로 좁힌다 — 이미 받은 (cycle,lead)는 자동 스킵되므로 중복 없음.
+          # seg 태그를 s11b 로 분리해 fails 파일 충돌 방지.
+          - {member: 4, seg: "s11b", start: "2019-01-01", end: "2020-08-31", stagger: 40}
           - {member: 0, seg: "s12a", start: "2020-09-01", end: "2021-12-31", stagger: 10}
           - {member: 1, seg: "s12a", start: "2020-09-01", end: "2021-12-31", stagger: 12}
           - {member: 2, seg: "s12a", start: "2020-09-01", end: "2021-12-31", stagger: 14}

@@ -27,20 +27,39 @@ V12_START = dt.date(2020, 9, 23)        # GEFSv12 운영 전환
 def sh(*args):
     return subprocess.run(list(args), cwd=REPO, capture_output=True, text=True)
 
+BRANCH = os.environ.get("GIT_BRANCH", "master")
+
+def _attached():
+    """HEAD가 브랜치에 붙어 있나 (detached면 False)"""
+    return sh("git", "symbolic-ref", "-q", "HEAD").returncode == 0
+
 def commit_push(msg):
-    import random
+    """[2026-07-30 전면 수정] 4시간 동안 한 건도 못 올린 사고 대응.
+    증상: 첫 시도부터 rebase가 detached HEAD를 만들고, 재시도 10회가 같은 충돌을 반복 재생성.
+    수정 4가지:
+      ① push 를 `origin HEAD:BRANCH` 형태로 — detached 상태에서도 통한다 (기존 `git push`는 실패)
+      ② rebase → merge — 레인마다 쓰는 파일이 달라 자동병합된다. rebase는 충돌 시 detached 로 빠진다
+      ③ 매 시도 앞에서 rebase/merge 잔재 정리 + 브랜치 재부착
+      ④ 에러를 400자까지 남긴다 (기존 120~150자 잘림 때문에 원인 문구를 못 봤다)
+    """
     sh("git", "add", "data")
     r = sh("git", "commit", "-m", msg)
     if "nothing to commit" in (r.stdout + r.stderr): return True
     for i in range(10):
-        sh("git", "rebase", "--abort")
-        r2 = sh("git", "pull", "--rebase", "--autostash")
-        if r2.returncode != 0:
-            st = sh("git", "status", "--short")
-            print(f"pull 실패 {i+1}: {r2.stderr.strip()[-150:]} | {st.stdout.strip()[:120]}", flush=True)
-        p = sh("git", "push")
+        sh("git", "rebase", "--abort"); sh("git", "merge", "--abort")
+        if not _attached():
+            print(f"detached HEAD 감지 → {BRANCH} 재부착", flush=True)
+            sh("git", "branch", "-f", BRANCH, "HEAD"); sh("git", "checkout", BRANCH)
+        sh("git", "fetch", "origin", BRANCH)
+        m = sh("git", "merge", "--no-edit", f"origin/{BRANCH}")
+        if m.returncode != 0:
+            print(f"merge 충돌 {i+1}: {(m.stdout + m.stderr).strip()[-400:]}", flush=True)
+            # 데이터 파일은 append-only 라 우리 쪽이 상위집합. 상대 레인 분량은 다음 패스에서 자동 재수집된다.
+            sh("git", "checkout", "--ours", "--", "data")
+            sh("git", "add", "data"); sh("git", "commit", "--no-edit")
+        p = sh("git", "push", "origin", f"HEAD:{BRANCH}")
         if p.returncode == 0: return True
-        print(f"push 재시도 {i+1}: {p.stderr.strip()[-120:]}", flush=True)
+        print(f"push 재시도 {i+1}: {(p.stdout + p.stderr).strip()[-400:]}", flush=True)
         time.sleep(np.random.uniform(2, 8) * (1 + i * 0.5))
     print("push 실패 10회 — 다음 커밋 때 재시도", flush=True)
     return False

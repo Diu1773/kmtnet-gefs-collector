@@ -69,7 +69,7 @@ jobs:
           git config user.name "gefs-collector-bot"
           git config user.email "actions@users.noreply.github.com"
       - name: Collect m${{ matrix.member }}/${{ matrix.seg }}
-        run: python worker_v2.py --member ${{ matrix.member }} --seg ${{ matrix.seg }} --start ${{ matrix.start }} --end ${{ matrix.end }} --budget-min 300 --stagger ${{ matrix.stagger }}
+        run: python worker_v2.py --member ${{ matrix.member }} --seg ${{ matrix.seg }} --start ${{ matrix.start }} --end ${{ matrix.end }} --budget-min 300 --stagger ${{ matrix.stagger }} --no-pass2
       - name: Final flush
         if: always()
         run: |

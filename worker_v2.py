@@ -157,6 +157,8 @@ def main():
     ap.add_argument("--commit-every-min", type=float, default=22)
     ap.add_argument("--seg", default="s0", help="레인 태그 — fails 파일 분리 + 커밋 스태거")
     ap.add_argument("--stagger", type=int, default=0, help="커밋주기 오프셋(분) — 레인별 고유값")
+    ap.add_argument("--no-pass2", action="store_true",
+                    help="야간(pass1)만 하고 종료 — 전체 야간 목표가 미달인데 일부 레인이 주간을 파는 것 방지")
     a = ap.parse_args()
     M = a.member
     a.commit_every_min += a.stagger
@@ -178,7 +180,11 @@ def main():
     t0 = time.time(); last_commit = t0; n_ok = n_skip = n_fail = 0
     d0 = dt.date.fromisoformat(a.start); d1 = dt.date.fromisoformat(a.end)
     stop = False
-    for night_first in (True, False):                       # pass1: 야간+전조 / pass2: 나머지
+    # [2026-08-01] 야간 우선: 자기 구간 야간을 끝낸 레인이 주간으로 넘어가면, 전체 야간 목표가
+    #   미달인 상태에서 슬롯을 주간에 쓴다(실측: 22시간 수집분의 78%가 주간으로 감).
+    #   --no-pass2 면 야간만 하고 종료 → 슬롯이 대기 중인 야간 레인에 넘어간다.
+    passes = (True,) if a.no_pass2 else (True, False)
+    for night_first in passes:                              # pass1: 야간+전조 / pass2: 나머지
         if stop: break
         day = d0
         while day <= d1 and not stop:

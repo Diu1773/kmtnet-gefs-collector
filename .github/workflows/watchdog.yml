@@ -24,7 +24,9 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
-      WF: "GEFS backfill v2"
+      # 감시 대상 = 현재 돌고 있는 백필. [2026-08-04] v2·v2x 완주 후 v2y 로 이관.
+      # (v2 를 가리킨 채로 두면 비활성 워크플로를 지키느라 재투입이 무의미해진다)
+      WF: "GEFS backfill v2y"
     steps:
       - name: 정체 런 취소 (진행 6h / 대기 1h)
         run: |

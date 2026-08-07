@@ -2,3 +2,4 @@
 # 파이썬 캐시 (2026-08-03)
 __pycache__/
 *.pyc
+logs_lead24_*.log

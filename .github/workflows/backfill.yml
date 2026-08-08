@@ -1,0 +1,45 @@
+name: GEFS backfill
+on:
+  workflow_dispatch:   # v1 구스펙 — 크론 제거(2026-07-25, v2로 대체). 수동 전용
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill            # 이전 릴레이가 아직 돌면 다음 회는 대기 (중복 실행 방지)
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false       # 한 멤버 실패해도 나머지 계속
+      matrix:
+        member: [0, 1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # [v3] 얕은 복제가 pull --rebase를 깨뜨림 (2026-07-24 push 전멸 원인 추정)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install --quiet herbie-data pandas numpy
+      - name: Git identity
+        run: |
+          git config user.name "gefs-collector-bot"
+          git config user.email "actions@users.noreply.github.com"
+      - name: Backfill member ${{ matrix.member }}
+        run: python backfill.py --member ${{ matrix.member }} --start 2017-01-01 --end 2023-12-31 --budget-min 320 --commit-every-min 25
+      - name: Final flush (에러로 죽어도 받은 만큼 커밋)
+        if: always()
+        run: |
+          git add data/ || true
+          git commit -m "backfill m${{ matrix.member }} final flush" || echo "no changes"
+          for i in 1 2 3 4 5 6 7 8; do
+            git push && break
+            git rebase --abort || true
+            git pull --rebase --autostash || git status --short
+            sleep $((3 + RANDOM % 10))
+          done

@@ -1,0 +1,44 @@
+name: GEFS collect
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "cycle date YYYY-MM-DD (00 UTC)"
+        required: true
+      members:
+        description: "ensemble members"
+        default: "0,1,2,3,4"
+      leads:
+        description: "forecast leads (h)"
+        default: "24,48,72,96,120,144,168"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install --quiet herbie-data pandas numpy
+      - name: Collect
+        run: python collect.py --date "${{ inputs.date }}" --members "${{ inputs.members }}" --leads "${{ inputs.leads }}"
+      - name: Commit results
+        run: |
+          git config user.name "gefs-collector-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git pull --rebase || true
+          git add data/
+          git commit -m "collect ${{ inputs.date }} (m=${{ inputs.members }})" || echo "no changes"
+          git push
+
+# rescan touch

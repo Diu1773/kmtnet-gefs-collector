@@ -1,0 +1,77 @@
+#  2024~2026 리드24 백필 (2026-08-08)
+#
+#   왜: 라벨(DIMM·MASS)은 2015~2026 이 다 있는데 GEFS 가 2017~2023 뿐이라 학습 밤이
+#       2,180 에서 막혀 있다. 통계리포트 §9.5 — 밤 2배면 총시잉 상관 +0.054.
+#       2024~2026 을 채우면 2,180 → 3,063밤(1.4배).
+#
+#   왜 리드24 만: 2024년부터 GEFS 는 3시간 간격이라 하루 리드가 30개 넘는다. 전 리드를 받으면
+#       142,500 단위(≈ 릴레이 일주일)다. 정본 분석이 쓰는 것은 00Z 리드24 하나뿐이라
+#       먼저 그것만 받는다 — 4,750 단위, 릴레이 한두 번이면 끝난다.
+#       나머지 리드는 나중에 backfill_v2.yml 의 기간만 늘려 채우면 같은 파일에 합쳐진다.
+#
+#   수동 전용 (workflow_dispatch). 다 받고 나면 이 파일은 지워도 된다.
+name: GEFS backfill lead24 (2024-2026)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill-lead24
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 15          # backfill_v2 와 같은 근거 (계정 동시잡 20 제한, watchdog 여유 남김)
+      matrix:
+        include:
+          # 멤버 5 × 구간 3 = 15레인. 이미 받은 (cycle, lead) 는 자동 스킵이라 겹쳐도 중복 없음.
+          - {member: 0, seg: "L24a", start: "2024-01-01", end: "2024-12-31", stagger: 0}
+          - {member: 1, seg: "L24a", start: "2024-01-01", end: "2024-12-31", stagger: 2}
+          - {member: 2, seg: "L24a", start: "2024-01-01", end: "2024-12-31", stagger: 4}
+          - {member: 3, seg: "L24a", start: "2024-01-01", end: "2024-12-31", stagger: 6}
+          - {member: 4, seg: "L24a", start: "2024-01-01", end: "2024-12-31", stagger: 8}
+          - {member: 0, seg: "L24b", start: "2025-01-01", end: "2025-12-31", stagger: 10}
+          - {member: 1, seg: "L24b", start: "2025-01-01", end: "2025-12-31", stagger: 12}
+          - {member: 2, seg: "L24b", start: "2025-01-01", end: "2025-12-31", stagger: 14}
+          - {member: 3, seg: "L24b", start: "2025-01-01", end: "2025-12-31", stagger: 16}
+          - {member: 4, seg: "L24b", start: "2025-01-01", end: "2025-12-31", stagger: 18}
+          - {member: 0, seg: "L24c", start: "2026-01-01", end: "2026-08-07", stagger: 20}
+          - {member: 1, seg: "L24c", start: "2026-01-01", end: "2026-08-07", stagger: 22}
+          - {member: 2, seg: "L24c", start: "2026-01-01", end: "2026-08-07", stagger: 24}
+          - {member: 3, seg: "L24c", start: "2026-01-01", end: "2026-08-07", stagger: 26}
+          - {member: 4, seg: "L24c", start: "2026-01-01", end: "2026-08-07", stagger: 28}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 얕은 복제는 pull --rebase 를 깨뜨린다 (2026-07-24 사고)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install --quiet herbie-data pandas numpy
+      - name: Git identity
+        run: |
+          git config user.name "gefs-collector-bot"
+          git config user.email "actions@users.noreply.github.com"
+      - name: Backfill lead24 m${{ matrix.member }} ${{ matrix.seg }}
+        run: >
+          python -X utf8 backfill_lead24.py
+          --member ${{ matrix.member }}
+          --start ${{ matrix.start }} --end ${{ matrix.end }}
+          --seg ${{ matrix.seg }}
+          --budget-min 320
+          --commit-every-min 20 --stagger ${{ matrix.stagger }}
+      - name: Final flush (죽어도 받은 만큼은 커밋)
+        if: always()
+        run: |
+          git add data/ || true
+          git commit -m "lead24 m${{ matrix.member }}/${{ matrix.seg }} final flush" || echo "no changes"
+          for i in 1 2 3 4 5 6 7 8; do
+            git pull --rebase --autostash && git push && break || sleep $((RANDOM % 20 + 5))
+          done

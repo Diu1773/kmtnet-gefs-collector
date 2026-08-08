@@ -1,0 +1,73 @@
+name: GEFS backfill v2y
+# 3차 패스 — 층별 습도(SPFH 31층) + 층별 운량(저·중·고·경계층).
+# 근거: 격자 지표 습도는 사이트 습도가 아니다 (level_vs_surface_check.py, 2026-08-04).
+#   격자면 v12 769 m vs 파라날 2,635 m — 1,866 m 아래 공기를 보고 있다.
+#   대시보드 「예보 78% vs 실측 8%」가 정확히 이것. 750 hPa 면이 2,565 m 로 사이트에 맞는다.
+#   기온으로 대리 검증: 격자 2m 상관 0.618 → 750 hPa 0.879.
+# 표본: lead 24h · 5멤버 · 2017-01~2023-12 = 12,775 단위 (v2·v2x 와 동일 표본 → 조인 100%)
+#   ⚠ 야간 전 리드로 넓히면 262,397 단위(20배, ~1.6 TB)다. 3축 실험에서 시각 축은
+#     견고하지 않았으므로(층 축만 유의) 여기서는 최적 config 와 같은 lead 24 만 받는다.
+# 비용: 6.39 MB/단위 × 12,775 ≈ 82 GB (러너 대역폭, 로컬 아님)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill-v2y
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 15         # 계정 동시잡 20 제한 — watchdog·수동 실행 여유 5
+      matrix:
+        include:               # 멤버 5 × 3구간 = 15레인. 구간이 달을 안 걸쳐 같은 파일 동시 append 없음
+          - {member: 0, seg: "ya", start: "2017-01-01", end: "2019-04-30", stagger: 0}
+          - {member: 1, seg: "ya", start: "2017-01-01", end: "2019-04-30", stagger: 2}
+          - {member: 2, seg: "ya", start: "2017-01-01", end: "2019-04-30", stagger: 4}
+          - {member: 3, seg: "ya", start: "2017-01-01", end: "2019-04-30", stagger: 6}
+          - {member: 4, seg: "ya", start: "2017-01-01", end: "2019-04-30", stagger: 8}
+          - {member: 0, seg: "yb", start: "2019-05-01", end: "2021-08-31", stagger: 10}
+          - {member: 1, seg: "yb", start: "2019-05-01", end: "2021-08-31", stagger: 12}
+          - {member: 2, seg: "yb", start: "2019-05-01", end: "2021-08-31", stagger: 14}
+          - {member: 3, seg: "yb", start: "2019-05-01", end: "2021-08-31", stagger: 16}
+          - {member: 4, seg: "yb", start: "2019-05-01", end: "2021-08-31", stagger: 18}
+          - {member: 0, seg: "yc", start: "2021-09-01", end: "2023-12-31", stagger: 20}
+          - {member: 1, seg: "yc", start: "2021-09-01", end: "2023-12-31", stagger: 22}
+          - {member: 2, seg: "yc", start: "2021-09-01", end: "2023-12-31", stagger: 24}
+          - {member: 3, seg: "yc", start: "2021-09-01", end: "2023-12-31", stagger: 26}
+          - {member: 4, seg: "yc", start: "2021-09-01", end: "2023-12-31", stagger: 28}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install --quiet herbie-data pandas numpy
+      - name: Git identity
+        run: |
+          git config user.name "gefs-collector-bot"
+          git config user.email "actions@users.noreply.github.com"
+      - name: Collect v2y m${{ matrix.member }}/${{ matrix.seg }}
+        run: python worker_v2y.py --member ${{ matrix.member }} --seg ${{ matrix.seg }} --start ${{ matrix.start }} --end ${{ matrix.end }} --leads 24 --levels all --budget-min 300 --stagger ${{ matrix.stagger }}
+      - name: Final flush
+        if: always()
+        run: |
+          git add data/ || true
+          git commit -m "v2y m${{ matrix.member }}/${{ matrix.seg }} final flush" || echo "no changes"
+          for i in 1 2 3 4 5 6 7 8; do
+            git push origin "HEAD:${{ github.ref_name }}" && break   # detached HEAD 안전형
+            git rebase --abort || true
+            git merge --abort || true
+            git fetch origin "${{ github.ref_name }}" && git merge --no-edit "origin/${{ github.ref_name }}" || git status --short
+            sleep $((3 + RANDOM % 10))
+          done

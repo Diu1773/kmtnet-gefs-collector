@@ -1,0 +1,64 @@
+name: GEFS backfill v2x
+# 2차 패스 — 지표층 난류 변수(HPBL·FRICV·GUST·VRATE) + HGT 15층.
+# 근거: 조건부 편향 오차분석(2026-08-03) — 나쁜 밤의 순서는 맞히나 진폭을 못 올린다.
+#   보정 2종 실패 → 재료 부재 가설. 현행 피처에 지표층 난류 변수가 하나도 없다.
+#   WRF(4~6일) 보다 싸게 같은 가설을 시험하려는 수집.
+# 범위: lead 24h · 5멤버 · 2017-01~2023-12 = 12,780 단위 (최적 config 와 동일 표본)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill-v2x
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 10          # 계정 동시잡 20 제한 — watchdog·타 워크플로 여유 확보
+      matrix:
+        include:                # 멤버 5 × 전·후반 2 = 10레인. 구간 겹침 없음(같은 파일 동시 append 방지)
+          - {member: 0, seg: "xa", start: "2017-01-01", end: "2020-06-30", stagger: 0}
+          - {member: 1, seg: "xa", start: "2017-01-01", end: "2020-06-30", stagger: 2}
+          - {member: 2, seg: "xa", start: "2017-01-01", end: "2020-06-30", stagger: 4}
+          - {member: 3, seg: "xa", start: "2017-01-01", end: "2020-06-30", stagger: 6}
+          - {member: 4, seg: "xa", start: "2017-01-01", end: "2020-06-30", stagger: 8}
+          - {member: 0, seg: "xb", start: "2020-07-01", end: "2023-12-31", stagger: 10}
+          - {member: 1, seg: "xb", start: "2020-07-01", end: "2023-12-31", stagger: 12}
+          - {member: 2, seg: "xb", start: "2020-07-01", end: "2023-12-31", stagger: 14}
+          - {member: 3, seg: "xb", start: "2020-07-01", end: "2023-12-31", stagger: 16}
+          - {member: 4, seg: "xb", start: "2020-07-01", end: "2023-12-31", stagger: 18}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install --quiet herbie-data pandas numpy
+      - name: Git identity
+        run: |
+          git config user.name "gefs-collector-bot"
+          git config user.email "actions@users.noreply.github.com"
+      - name: Collect v2x m${{ matrix.member }}/${{ matrix.seg }}
+        run: python worker_v2x.py --member ${{ matrix.member }} --seg ${{ matrix.seg }} --start ${{ matrix.start }} --end ${{ matrix.end }} --budget-min 300 --stagger ${{ matrix.stagger }}
+      - name: Final flush
+        if: always()
+        run: |
+          git add data/ || true
+          git commit -m "v2x m${{ matrix.member }}/${{ matrix.seg }} final flush" || echo "no changes"
+          for i in 1 2 3 4 5 6 7 8; do
+            git push origin "HEAD:${{ github.ref_name }}" && break   # detached HEAD 안전형
+            git rebase --abort || true
+            git merge --abort || true
+            git fetch origin "${{ github.ref_name }}" && git merge --no-edit "origin/${{ github.ref_name }}" || git status --short
+            sleep $((3 + RANDOM % 10))
+          done

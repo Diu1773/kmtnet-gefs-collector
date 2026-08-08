@@ -1,0 +1,105 @@
+name: watchdog
+# 자율 복구 — 사람 개입 없이 수집이 계속되도록.
+#  ① 정체 런 취소: 진행 중 6h 초과 / 대기 4h 초과
+#  ② 실제로 도는 백필이 0이면 즉시 재투입
+# [2026-07-26 v3] 취소 반영 지연으로 '가동 중'을 오판해 재투입을 건너뛰는 버그 수정
+#   (실측: 17:11 취소 → 20초 뒤 재확인 시 아직 in_progress로 집계 → 재투입 스킵 → 백필 0 공백)
+on:
+  schedule:
+    - cron: "7,37 * * * *"   # 30분마다 (매시간은 크론 스킵 시 공백이 큼 — 2026-07-27 실측: 05·06·07시 스킵)
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      # 감시 대상 = 현재 돌고 있는 백필. [2026-08-04] v2·v2x 완주 후 v2y 로 이관.
+      # (v2 를 가리킨 채로 두면 비활성 워크플로를 지키느라 재투입이 무의미해진다)
+      WF: "GEFS backfill v2y"
+    steps:
+      - name: 정체 런 취소 (진행 6h / 대기 1h)
+        run: |
+          now=$(date -u +%s); n=0
+          : > cancelled_ids.txt
+          for pair in "in_progress:21600" "queued:14400"; do   # [2026-07-27] queued 1h→4h: 무료 러너 대기는 정상인데 멀쩡한 잡을 죽여 재큐잉 루프 유발
+            state="${pair%%:*}"; lim="${pair##*:}"
+            gh api "repos/$REPO/actions/runs?status=$state&per_page=50" \
+              --jq '.workflow_runs[] | select(.name != "watchdog") | "\(.id) \(.created_at)"' > runs.txt || true
+            while read -r id created; do
+              [ -z "$id" ] && continue
+              age=$(( now - $(date -u -d "$created" +%s) ))
+              if [ "$age" -gt "$lim" ]; then
+                # [2026-07-28] 유령 queued 방어: 런 상태가 queued로 오표기돼도 잡이 실제로 돌면 건강한 런
+                #   (실측: 30320019939 — 잡 10개 in_progress·커밋 지속인데 런 상태 3h49m queued)
+                act=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" \
+                  --jq '[.jobs[] | select(.status=="in_progress")] | length' 2>/dev/null || echo 0)
+                if [ "${act:-0}" -gt 0 ]; then
+                  echo "스킵: run $id ($state $((age/60))분) — 잡 $act개 실행 중 (유령 상태, 건강)"
+                  continue
+                fi
+                echo "정체 취소: run $id ($state, 경과 $((age/60))분 > $((lim/60))분)"
+                gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null 2>&1 || true
+                echo "$id" >> cancelled_ids.txt
+                n=$((n+1))
+              fi
+            done < runs.txt
+          done
+          echo "취소한 정체 런: $n건"
+          echo "CANCELLED=$n" >> "$GITHUB_ENV"
+      - name: 백필이 멎었으면 재투입
+        run: |
+          # 취소가 있었으면 반영까지 넉넉히 기다리고, 취소한 런은 활성 집계에서 제외
+          if [ "${CANCELLED:-0}" -gt 0 ]; then sleep 90; else sleep 20; fi
+          active=0
+          for try in 1 2 3; do
+            # [2026-07-28] 런 상태는 유령(오표기)일 수 있어 in_progress·queued 둘 다 잡 단위로 실측
+            ids=$(gh api "repos/$REPO/actions/runs?per_page=30" \
+              --jq "[.workflow_runs[] | select(.name==\"$WF\" and (.status==\"in_progress\" or .status==\"queued\")) | .id] | .[]" || true)
+            active=0
+            for id in $ids; do
+              grep -qx "$id" cancelled_ids.txt 2>/dev/null && continue   # 방금 취소한 건 제외
+              act=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" \
+                --jq '[.jobs[] | select(.status=="in_progress")] | length' 2>/dev/null || echo 0)
+              [ "${act:-0}" -gt 0 ] && active=$((active+1))
+            done
+            echo "확인 $try: 실제 가동 중 백필 런 $active"
+            [ "$active" -gt 0 ] && break
+            sleep 30
+          done
+          if [ "$active" -eq 0 ]; then
+            echo "→ 백필 재투입"
+            gh workflow run "$WF" --repo "$REPO"
+          else
+            echo "→ 정상 가동 중, 조치 없음"
+          fi
+          echo "ACTIVE=$active" >> "$GITHUB_ENV"
+      - name: 커밋 정체 감지 (잡은 살아있는데 결과가 안 나오는 상태)
+        # [2026-07-30 신설] 실사고: 16레인이 4시간 정상 가동했으나 push 가 전부 detached HEAD 로 실패해
+        #   커밋 0건. 잡 단위 liveness 만 보던 기존 watchdog 은 "정상 가동 중"으로 오판했다.
+        #   → 산출물(커밋)이 멈췄는지를 따로 본다. 레인 커밋주기 최대 72분(22+stagger50)이라 임계 110분.
+        run: |
+          [ "${ACTIVE:-0}" -eq 0 ] && { echo "가동 중 백필 없음 — 이 검사 건너뜀"; exit 0; }
+          last=$(gh api "repos/$REPO/commits?per_page=1" --jq '.[0].commit.committer.date')
+          age=$(( ( $(date -u +%s) - $(date -u -d "$last" +%s) ) / 60 ))
+          echo "마지막 커밋 $last · 경과 ${age}분 (임계 110분)"
+          if [ "$age" -le 110 ]; then echo "→ 산출물 정상"; exit 0; fi
+          echo "→ 커밋 정체 ${age}분: 잡은 도는데 결과가 없다. 해당 런 취소 후 재투입"
+          for id in $(gh api "repos/$REPO/actions/runs?per_page=30" \
+                --jq "[.workflow_runs[] | select(.name==\"$WF\" and .status!=\"completed\") | .id] | .[]"); do
+            act=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" \
+              --jq '[.jobs[] | select(.status=="in_progress")] | length' 2>/dev/null || echo 0)
+            [ "${act:-0}" -gt 0 ] && { echo "  취소: run $id (잡 $act개)"; gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null 2>&1 || true; }
+          done
+          sleep 90
+          gh workflow run "$WF" --repo "$REPO" && echo "  재투입 완료"

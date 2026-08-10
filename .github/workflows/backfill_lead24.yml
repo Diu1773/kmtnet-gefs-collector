@@ -61,7 +61,7 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
       - name: Backfill lead24 m${{ matrix.member }} ${{ matrix.seg }}
         run: >
-          python -X utf8 backfill_lead24.py
+          python -X utf8 backfill_lead.py          # 2026-08-10 이름 일반화 (--lead 기본 24)
           --member ${{ matrix.member }}
           --start ${{ matrix.start }} --end ${{ matrix.end }}
           --seg ${{ matrix.seg }}

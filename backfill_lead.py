@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""리드 24 만 받는 좁은 백필 — 2024~ 라벨 구간을 학습에 쓰려고 (2026-08-08).
+"""리드 **하나만** 골라 받는 좁은 백필 — 2024~ 라벨 구간을 학습에 쓰려고 (2026-08-08).
+
+리드는 `--lead` 로 고른다. **기본값 24** 이므로 2026-08-08 의 리드24 백필 명령은
+한 글자도 안 바꾸고 그대로 돈다 (파일 이름만 `backfill_lead24.py` → `backfill_lead.py`).
 
 왜 따로 만드나
   라벨(DIMM·MASS)은 이미 2015~2026 이 다 있는데 **GEFS 가 2017~2023 뿐**이라
@@ -8,8 +11,11 @@
 
   그런데 `worker_v2.py` 는 하루에 리드를 30개 넘게 받는다(2024년부터는 3시간 간격).
   한 단위가 약 160초라 노트북에서 전체 스펙은 몇 달이 걸린다.
-  **정본 분석이 쓰는 것은 00Z 리드 24 하나**이므로(§2.2), 그것만 먼저 받는다.
-  나머지 리드는 나중에 GitHub Actions 로 채우면 된다 — 파일 형식이 같아 그대로 합쳐진다.
+  그래서 **필요한 리드만 하나씩** 받는다.
+
+  2026-08-08 에는 리드24(1일)만 받았다. 2026-08-10 에 리드 **72(3일)·168(7일)** 을 더 받는다 —
+  §9.5 의 「밤을 늘리면 오른다」가 1일에서만 검증돼 있어서, 리포트가 중심축으로 쓰는
+  **리드 1·3·7일** 세 점의 밤 수가 서로 달랐기 때문이다(1일 10년 vs 3·7일 7년).
 
 worker_v2.py 를 고치지 않는다
   fetch_unit·rows_from·purge_cache 를 그대로 가져다 쓴다. 출력 파일도 같은 규약
@@ -26,8 +32,13 @@ git 은 기본으로 건드리지 않는다
   **노트북 6일 vs Actions 6시간**이다. 정공법은 Actions 다.
 
 쓰는 법 (멤버마다 프로세스 하나 — 스레드로 돌리면 eccodes 가 깨진다, 2026-08-08 실측)
-    python -X utf8 backfill_lead24.py --member 1 --start 2024-01-01 --end 2026-08-07
-    python -X utf8 backfill_lead24.py --member 1 ... --commit-every-min 20   # Actions 용
+    python -X utf8 backfill_lead.py --member 1 --start 2024-01-01 --end 2026-08-07
+    python -X utf8 backfill_lead.py --member 1 --lead 72 --start 2024-01-01 --end 2024-12-31
+    python -X utf8 backfill_lead.py --member 1 ... --commit-every-min 20   # Actions 용
+
+⚠ `--seg` 는 레인마다 달라야 한다. 실패 기록을 `fails_m{M}_{seg}.json` 에 쓰기 때문에
+  같은 seg 를 쓰는 두 레인이 서로의 기록을 덮어쓴다. 리드까지 섞이면 더 위험하므로
+  기본값을 `L{lead}` 로 두었다 (리드24 → `L24`, 리드72 → `L72`).
 """
 import argparse
 import datetime as dt
@@ -43,22 +54,27 @@ sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from worker_v2 import DATA, commit_push, fetch_unit, purge_cache, rows_from    # noqa: E402
 
-LEAD = 24
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--member", type=int, required=True)
+    ap.add_argument("--lead", type=int, default=24,
+                    help="받을 리드(시간). 기본 24 — 2026-08-08 명령과 동일하게 돈다")
     ap.add_argument("--start", required=True)
     ap.add_argument("--end", required=True)
     ap.add_argument("--budget-min", type=float, default=1e9, help="이 분을 넘기면 곱게 종료")
     ap.add_argument("--commit-every-min", type=float, default=0,
                     help="0 이면 git 을 안 건드린다. Actions 처럼 러너가 사라지는 곳에서만 준다")
-    ap.add_argument("--seg", default="L24", help="fails 파일 태그 — 레인끼리 안 겹치게")
+    ap.add_argument("--seg", default=None,
+                    help="fails 파일 태그 — 레인끼리 안 겹치게. 비우면 L{lead}")
     ap.add_argument("--stagger", type=int, default=0,
                     help="커밋주기 오프셋(분) — 레인끼리 push 경합을 어긋내려고")
     a = ap.parse_args()
     M = a.member
+    LEAD = a.lead
+    if not a.seg:
+        a.seg = f"L{LEAD}"
     a.commit_every_min += a.stagger if a.commit_every_min else 0
     d0 = dt.date.fromisoformat(a.start); d1 = dt.date.fromisoformat(a.end)
     os.makedirs(DATA, exist_ok=True)
@@ -110,13 +126,13 @@ def main():
             json.dump(fails, open(fails_path, "w", encoding="utf-8"))
         if a.commit_every_min and (time.time() - last_commit) / 60 > a.commit_every_min:
             json.dump(fails, open(fails_path, "w", encoding="utf-8"))
-            commit_push(f"lead24 m{M}/{a.seg} @ {cycle} (ok {n_ok})")
+            commit_push(f"lead{LEAD} m{M}/{a.seg} @ {cycle} (ok {n_ok})")
             last_commit = time.time()
         purge_cache()
         day += dt.timedelta(days=1)
     json.dump(fails, open(fails_path, "w", encoding="utf-8"))
     if a.commit_every_min:
-        commit_push(f"lead24 m{M}/{a.seg} 세션종료 (ok {n_ok} skip {n_skip} fail {n_fail})")
+        commit_push(f"lead{LEAD} m{M}/{a.seg} 세션종료 (ok {n_ok} skip {n_skip} fail {n_fail})")
     print(f"■ 끝 m{M}: ok {n_ok} · skip {n_skip} · fail {n_fail} · {(time.time()-t0)/60:.0f}분", flush=True)
 
 

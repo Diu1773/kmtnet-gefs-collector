@@ -1,0 +1,102 @@
+#  2024~2026 리드 72(3일)·168(7일) 백필 (2026-08-10)
+#
+#   왜: 2026-08-08 에 리드24(1일)만 2024~2026 으로 늘렸다. 그래서 통계리포트 §9.5 의
+#       「밤을 늘리면 총시잉 상관이 오른다(+0.060, 유의)」가 **1일 예보에서만** 검증돼 있다.
+#       리포트가 중심축으로 쓰는 것은 **리드 1·3·7일** 세 점인데(§3.1 리드 곡선),
+#       실측해 보니 밤 수가 서로 달랐다 — 1일 2017~2026(10년) vs 3·7일 2017~2023(7년).
+#       세 점의 밤 수를 맞춰야 「밤을 늘리면 오른다」가 리드 축 전체에서 참인지 말할 수 있다.
+#
+#   왜 이 둘만: 일 단위 리드는 24·48·72·96·120·144·168 일곱 개인데, 리포트가 실제로
+#       인용하는 것은 1·3·7일이다. 남은 넷(48·96·120·144)은 같은 워크플로에 리드만
+#       바꿔 나중에 채우면 되고, 파일 형식이 같아 그대로 합쳐진다.
+#
+#   레인 설계: 2리드 × 5멤버 × 3구간 = 30레인. max-parallel 15 라 두 물결로 돈다.
+#       한 레인이 320분 예산에서 약 320단위를 하므로 366일 구간은 한 번에 못 끝낼 수 있다.
+#       이미 받은 (cycle, lead) 는 자동으로 건너뛰므로 **다시 dispatch 하면 이어 달린다.**
+#
+#   실측 (2026-08-10, 노트북): 리드72 = 145초/단위, 리드168 = 177초/단위, 31층 전부 채워짐.
+#       Actions 는 같은 일을 훨씬 빨리 한다(리드24 실측 4,750단위 / 8.2시간 ≈ 60초/단위).
+#
+#   수동 전용 (workflow_dispatch).
+name: GEFS backfill lead72+168 (2024-2026)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill-lead72-168
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 15          # 계정 동시잡 20 제한 — watchdog 여유를 남긴다
+      matrix:
+        include:
+          # ── 리드 72 (3일) ────────────────────────────────────────────────
+          - {lead: 72,  member: 0, seg: "L72a",  start: "2024-01-01", end: "2024-12-31", stagger: 0}
+          - {lead: 72,  member: 1, seg: "L72a",  start: "2024-01-01", end: "2024-12-31", stagger: 2}
+          - {lead: 72,  member: 2, seg: "L72a",  start: "2024-01-01", end: "2024-12-31", stagger: 4}
+          - {lead: 72,  member: 3, seg: "L72a",  start: "2024-01-01", end: "2024-12-31", stagger: 6}
+          - {lead: 72,  member: 4, seg: "L72a",  start: "2024-01-01", end: "2024-12-31", stagger: 8}
+          - {lead: 72,  member: 0, seg: "L72b",  start: "2025-01-01", end: "2025-12-31", stagger: 10}
+          - {lead: 72,  member: 1, seg: "L72b",  start: "2025-01-01", end: "2025-12-31", stagger: 12}
+          - {lead: 72,  member: 2, seg: "L72b",  start: "2025-01-01", end: "2025-12-31", stagger: 14}
+          - {lead: 72,  member: 3, seg: "L72b",  start: "2025-01-01", end: "2025-12-31", stagger: 16}
+          - {lead: 72,  member: 4, seg: "L72b",  start: "2025-01-01", end: "2025-12-31", stagger: 18}
+          - {lead: 72,  member: 0, seg: "L72c",  start: "2026-01-01", end: "2026-08-07", stagger: 20}
+          - {lead: 72,  member: 1, seg: "L72c",  start: "2026-01-01", end: "2026-08-07", stagger: 22}
+          - {lead: 72,  member: 2, seg: "L72c",  start: "2026-01-01", end: "2026-08-07", stagger: 24}
+          - {lead: 72,  member: 3, seg: "L72c",  start: "2026-01-01", end: "2026-08-07", stagger: 26}
+          - {lead: 72,  member: 4, seg: "L72c",  start: "2026-01-01", end: "2026-08-07", stagger: 28}
+          # ── 리드 168 (7일) ───────────────────────────────────────────────
+          - {lead: 168, member: 0, seg: "L168a", start: "2024-01-01", end: "2024-12-31", stagger: 1}
+          - {lead: 168, member: 1, seg: "L168a", start: "2024-01-01", end: "2024-12-31", stagger: 3}
+          - {lead: 168, member: 2, seg: "L168a", start: "2024-01-01", end: "2024-12-31", stagger: 5}
+          - {lead: 168, member: 3, seg: "L168a", start: "2024-01-01", end: "2024-12-31", stagger: 7}
+          - {lead: 168, member: 4, seg: "L168a", start: "2024-01-01", end: "2024-12-31", stagger: 9}
+          - {lead: 168, member: 0, seg: "L168b", start: "2025-01-01", end: "2025-12-31", stagger: 11}
+          - {lead: 168, member: 1, seg: "L168b", start: "2025-01-01", end: "2025-12-31", stagger: 13}
+          - {lead: 168, member: 2, seg: "L168b", start: "2025-01-01", end: "2025-12-31", stagger: 15}
+          - {lead: 168, member: 3, seg: "L168b", start: "2025-01-01", end: "2025-12-31", stagger: 17}
+          - {lead: 168, member: 4, seg: "L168b", start: "2025-01-01", end: "2025-12-31", stagger: 19}
+          - {lead: 168, member: 0, seg: "L168c", start: "2026-01-01", end: "2026-08-07", stagger: 21}
+          - {lead: 168, member: 1, seg: "L168c", start: "2026-01-01", end: "2026-08-07", stagger: 23}
+          - {lead: 168, member: 2, seg: "L168c", start: "2026-01-01", end: "2026-08-07", stagger: 25}
+          - {lead: 168, member: 3, seg: "L168c", start: "2026-01-01", end: "2026-08-07", stagger: 27}
+          - {lead: 168, member: 4, seg: "L168c", start: "2026-01-01", end: "2026-08-07", stagger: 29}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 얕은 복제는 pull --rebase 를 깨뜨린다 (2026-07-24 사고)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install --quiet herbie-data pandas numpy
+      - name: Git identity
+        run: |
+          git config user.name "gefs-collector-bot"
+          git config user.email "actions@users.noreply.github.com"
+      - name: Backfill lead${{ matrix.lead }} m${{ matrix.member }} ${{ matrix.seg }}
+        run: >
+          python -X utf8 backfill_lead.py
+          --member ${{ matrix.member }}
+          --lead ${{ matrix.lead }}
+          --start ${{ matrix.start }} --end ${{ matrix.end }}
+          --seg ${{ matrix.seg }}
+          --budget-min 320
+          --commit-every-min 20 --stagger ${{ matrix.stagger }}
+      - name: Final flush (죽어도 받은 만큼은 커밋)
+        if: always()
+        run: |
+          git add data/ || true
+          git commit -m "lead${{ matrix.lead }} m${{ matrix.member }}/${{ matrix.seg }} final flush" || echo "no changes"
+          for i in 1 2 3 4 5 6 7 8; do
+            git pull --rebase --autostash && git push && break || sleep $((RANDOM % 20 + 5))
+          done

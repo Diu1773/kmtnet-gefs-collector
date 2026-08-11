@@ -1,0 +1,194 @@
+#  2024~2026 남은 수집 전부 — v2x · v2y · 리드 48·96·120·144 (2026-08-11)
+#
+#   왜 지금인가: 2026-08-11 에 통계리포트를 처음부터 다시 돌려 보니, 2024~2026 밤이
+#       **v2(바람·기온·지표)만 100%, v2x(난류·지오포텐셜)·v2y(습도·층별운량)는 0%** 였다.
+#       그래서 v2 열만 쓰는 분석은 조용히 2026 까지 늘어나고, v2x·v2y 가 필요한 분석은
+#       2023 에 멈춰 리포트가 **두 시절 수치를 섞어** 담고 있었다.
+#       (실측: xy_cache 17,524행 중 2024~2026 의 v2x·v2y 열 채움률 0%)
+#       리드도 어긋나 있다 — 24·72·168 h 는 2026-08 까지인데 48·96·120·144 h 는 2023-12 까지다.
+#
+#   그래서 이 워크플로 하나로 남은 세 갈래를 다 받는다:
+#       ① v2x  리드 24 · 2024~2026   (지표난류 4종 + HGT 15층)
+#       ② v2y  리드 24 · 2024~2026   (SPFH 31층 + 층별 운량)
+#       ③ v2   리드 48·96·120·144 · 2024~2026
+#
+#   받을 수 있는지 먼저 확인했다 (2026-08-11, 실시간 아카이브 색인 실측):
+#       gefs.20250415/00/atmos/pgrb2bp5/gep01...f024.idx 를 열어 보니
+#       HPBL·FRICV·GUST(surface) · VRATE(planetary boundary layer) 각 1개,
+#       SPFH·HGT·TMP·UGRD·VGRD 는 **v2 의 31 기압면 전부**, 층별 운량(저·중·고·경계층) 있음.
+#       ⚠ 2017~2023 은 재예보(reforecast), 2024~ 는 실시간 아카이브다 — 소스가 다르므로
+#         확인 없이 걸면 안 된다. Herbie 가 날짜로 소스를 고른다.
+#
+#   레인 설계 90개 · max-parallel 15 → 6물결. 앞 2물결이 ①②(막고 있던 것)이다.
+#       watchdog 이 「잡이 살아 있으면 나이와 무관하게 취소 안 함」이므로 긴 런도 안전하고,
+#       멎으면 재투입한다 — 단 watchdog.yml 의 `WF` 를 이 워크플로 이름으로 바꿔야 한다.
+#       이미 받은 (cycle, lead) 는 자동 스킵이라 다시 dispatch 해도 중복 수집이 없다.
+#
+#   비용: 러너 대역폭만 (저장소가 PUBLIC 이라 Actions 분은 무제한 무료).
+#       v2y 는 실측 6.39 MB/단위 × 4,750 ≈ 30 GB. 로컬 디스크는 안 쓴다.
+#
+#   수동 전용 (workflow_dispatch).
+name: GEFS backfill 2024-2026 rest
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill-2024-2026-rest
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 15          # 계정 동시잡 20 제한 — watchdog·타 cron 여유 5
+      matrix:
+        include:
+          # ── ① v2x (지표난류 4 + HGT 15층) · 리드 24 ─────────────────────
+          - {kind: v2x, lead: 24, member: 0, seg: "x24", start: "2024-01-01", end: "2024-12-31", stagger: 0}
+          - {kind: v2x, lead: 24, member: 1, seg: "x24", start: "2024-01-01", end: "2024-12-31", stagger: 2}
+          - {kind: v2x, lead: 24, member: 2, seg: "x24", start: "2024-01-01", end: "2024-12-31", stagger: 4}
+          - {kind: v2x, lead: 24, member: 3, seg: "x24", start: "2024-01-01", end: "2024-12-31", stagger: 6}
+          - {kind: v2x, lead: 24, member: 4, seg: "x24", start: "2024-01-01", end: "2024-12-31", stagger: 8}
+          - {kind: v2x, lead: 24, member: 0, seg: "x25", start: "2025-01-01", end: "2025-12-31", stagger: 10}
+          - {kind: v2x, lead: 24, member: 1, seg: "x25", start: "2025-01-01", end: "2025-12-31", stagger: 12}
+          - {kind: v2x, lead: 24, member: 2, seg: "x25", start: "2025-01-01", end: "2025-12-31", stagger: 14}
+          - {kind: v2x, lead: 24, member: 3, seg: "x25", start: "2025-01-01", end: "2025-12-31", stagger: 16}
+          - {kind: v2x, lead: 24, member: 4, seg: "x25", start: "2025-01-01", end: "2025-12-31", stagger: 18}
+          - {kind: v2x, lead: 24, member: 0, seg: "x26", start: "2026-01-01", end: "2026-08-07", stagger: 20}
+          - {kind: v2x, lead: 24, member: 1, seg: "x26", start: "2026-01-01", end: "2026-08-07", stagger: 22}
+          - {kind: v2x, lead: 24, member: 2, seg: "x26", start: "2026-01-01", end: "2026-08-07", stagger: 24}
+          - {kind: v2x, lead: 24, member: 3, seg: "x26", start: "2026-01-01", end: "2026-08-07", stagger: 26}
+          - {kind: v2x, lead: 24, member: 4, seg: "x26", start: "2026-01-01", end: "2026-08-07", stagger: 28}
+          # ── ② v2y (SPFH 31층 + 층별 운량) · 리드 24 ──────────────────────
+          - {kind: v2y, lead: 24, member: 0, seg: "y24", start: "2024-01-01", end: "2024-12-31", stagger: 1}
+          - {kind: v2y, lead: 24, member: 1, seg: "y24", start: "2024-01-01", end: "2024-12-31", stagger: 3}
+          - {kind: v2y, lead: 24, member: 2, seg: "y24", start: "2024-01-01", end: "2024-12-31", stagger: 5}
+          - {kind: v2y, lead: 24, member: 3, seg: "y24", start: "2024-01-01", end: "2024-12-31", stagger: 7}
+          - {kind: v2y, lead: 24, member: 4, seg: "y24", start: "2024-01-01", end: "2024-12-31", stagger: 9}
+          - {kind: v2y, lead: 24, member: 0, seg: "y25", start: "2025-01-01", end: "2025-12-31", stagger: 11}
+          - {kind: v2y, lead: 24, member: 1, seg: "y25", start: "2025-01-01", end: "2025-12-31", stagger: 13}
+          - {kind: v2y, lead: 24, member: 2, seg: "y25", start: "2025-01-01", end: "2025-12-31", stagger: 15}
+          - {kind: v2y, lead: 24, member: 3, seg: "y25", start: "2025-01-01", end: "2025-12-31", stagger: 17}
+          - {kind: v2y, lead: 24, member: 4, seg: "y25", start: "2025-01-01", end: "2025-12-31", stagger: 19}
+          - {kind: v2y, lead: 24, member: 0, seg: "y26", start: "2026-01-01", end: "2026-08-07", stagger: 21}
+          - {kind: v2y, lead: 24, member: 1, seg: "y26", start: "2026-01-01", end: "2026-08-07", stagger: 23}
+          - {kind: v2y, lead: 24, member: 2, seg: "y26", start: "2026-01-01", end: "2026-08-07", stagger: 25}
+          - {kind: v2y, lead: 24, member: 3, seg: "y26", start: "2026-01-01", end: "2026-08-07", stagger: 27}
+          - {kind: v2y, lead: 24, member: 4, seg: "y26", start: "2026-01-01", end: "2026-08-07", stagger: 29}
+          # ── ③ v2 리드 48 (2일) ──────────────────────────────────────────
+          - {kind: lead, lead: 48, member: 0, seg: "L48a", start: "2024-01-01", end: "2024-12-31", stagger: 0}
+          - {kind: lead, lead: 48, member: 1, seg: "L48a", start: "2024-01-01", end: "2024-12-31", stagger: 2}
+          - {kind: lead, lead: 48, member: 2, seg: "L48a", start: "2024-01-01", end: "2024-12-31", stagger: 4}
+          - {kind: lead, lead: 48, member: 3, seg: "L48a", start: "2024-01-01", end: "2024-12-31", stagger: 6}
+          - {kind: lead, lead: 48, member: 4, seg: "L48a", start: "2024-01-01", end: "2024-12-31", stagger: 8}
+          - {kind: lead, lead: 48, member: 0, seg: "L48b", start: "2025-01-01", end: "2025-12-31", stagger: 10}
+          - {kind: lead, lead: 48, member: 1, seg: "L48b", start: "2025-01-01", end: "2025-12-31", stagger: 12}
+          - {kind: lead, lead: 48, member: 2, seg: "L48b", start: "2025-01-01", end: "2025-12-31", stagger: 14}
+          - {kind: lead, lead: 48, member: 3, seg: "L48b", start: "2025-01-01", end: "2025-12-31", stagger: 16}
+          - {kind: lead, lead: 48, member: 4, seg: "L48b", start: "2025-01-01", end: "2025-12-31", stagger: 18}
+          - {kind: lead, lead: 48, member: 0, seg: "L48c", start: "2026-01-01", end: "2026-08-07", stagger: 20}
+          - {kind: lead, lead: 48, member: 1, seg: "L48c", start: "2026-01-01", end: "2026-08-07", stagger: 22}
+          - {kind: lead, lead: 48, member: 2, seg: "L48c", start: "2026-01-01", end: "2026-08-07", stagger: 24}
+          - {kind: lead, lead: 48, member: 3, seg: "L48c", start: "2026-01-01", end: "2026-08-07", stagger: 26}
+          - {kind: lead, lead: 48, member: 4, seg: "L48c", start: "2026-01-01", end: "2026-08-07", stagger: 28}
+          # ── ③ v2 리드 96 (4일) ──────────────────────────────────────────
+          - {kind: lead, lead: 96, member: 0, seg: "L96a", start: "2024-01-01", end: "2024-12-31", stagger: 1}
+          - {kind: lead, lead: 96, member: 1, seg: "L96a", start: "2024-01-01", end: "2024-12-31", stagger: 3}
+          - {kind: lead, lead: 96, member: 2, seg: "L96a", start: "2024-01-01", end: "2024-12-31", stagger: 5}
+          - {kind: lead, lead: 96, member: 3, seg: "L96a", start: "2024-01-01", end: "2024-12-31", stagger: 7}
+          - {kind: lead, lead: 96, member: 4, seg: "L96a", start: "2024-01-01", end: "2024-12-31", stagger: 9}
+          - {kind: lead, lead: 96, member: 0, seg: "L96b", start: "2025-01-01", end: "2025-12-31", stagger: 11}
+          - {kind: lead, lead: 96, member: 1, seg: "L96b", start: "2025-01-01", end: "2025-12-31", stagger: 13}
+          - {kind: lead, lead: 96, member: 2, seg: "L96b", start: "2025-01-01", end: "2025-12-31", stagger: 15}
+          - {kind: lead, lead: 96, member: 3, seg: "L96b", start: "2025-01-01", end: "2025-12-31", stagger: 17}
+          - {kind: lead, lead: 96, member: 4, seg: "L96b", start: "2025-01-01", end: "2025-12-31", stagger: 19}
+          - {kind: lead, lead: 96, member: 0, seg: "L96c", start: "2026-01-01", end: "2026-08-07", stagger: 21}
+          - {kind: lead, lead: 96, member: 1, seg: "L96c", start: "2026-01-01", end: "2026-08-07", stagger: 23}
+          - {kind: lead, lead: 96, member: 2, seg: "L96c", start: "2026-01-01", end: "2026-08-07", stagger: 25}
+          - {kind: lead, lead: 96, member: 3, seg: "L96c", start: "2026-01-01", end: "2026-08-07", stagger: 27}
+          - {kind: lead, lead: 96, member: 4, seg: "L96c", start: "2026-01-01", end: "2026-08-07", stagger: 29}
+          # ── ③ v2 리드 120 (5일) ─────────────────────────────────────────
+          - {kind: lead, lead: 120, member: 0, seg: "L120a", start: "2024-01-01", end: "2024-12-31", stagger: 0}
+          - {kind: lead, lead: 120, member: 1, seg: "L120a", start: "2024-01-01", end: "2024-12-31", stagger: 2}
+          - {kind: lead, lead: 120, member: 2, seg: "L120a", start: "2024-01-01", end: "2024-12-31", stagger: 4}
+          - {kind: lead, lead: 120, member: 3, seg: "L120a", start: "2024-01-01", end: "2024-12-31", stagger: 6}
+          - {kind: lead, lead: 120, member: 4, seg: "L120a", start: "2024-01-01", end: "2024-12-31", stagger: 8}
+          - {kind: lead, lead: 120, member: 0, seg: "L120b", start: "2025-01-01", end: "2025-12-31", stagger: 10}
+          - {kind: lead, lead: 120, member: 1, seg: "L120b", start: "2025-01-01", end: "2025-12-31", stagger: 12}
+          - {kind: lead, lead: 120, member: 2, seg: "L120b", start: "2025-01-01", end: "2025-12-31", stagger: 14}
+          - {kind: lead, lead: 120, member: 3, seg: "L120b", start: "2025-01-01", end: "2025-12-31", stagger: 16}
+          - {kind: lead, lead: 120, member: 4, seg: "L120b", start: "2025-01-01", end: "2025-12-31", stagger: 18}
+          - {kind: lead, lead: 120, member: 0, seg: "L120c", start: "2026-01-01", end: "2026-08-07", stagger: 20}
+          - {kind: lead, lead: 120, member: 1, seg: "L120c", start: "2026-01-01", end: "2026-08-07", stagger: 22}
+          - {kind: lead, lead: 120, member: 2, seg: "L120c", start: "2026-01-01", end: "2026-08-07", stagger: 24}
+          - {kind: lead, lead: 120, member: 3, seg: "L120c", start: "2026-01-01", end: "2026-08-07", stagger: 26}
+          - {kind: lead, lead: 120, member: 4, seg: "L120c", start: "2026-01-01", end: "2026-08-07", stagger: 28}
+          # ── ③ v2 리드 144 (6일) ─────────────────────────────────────────
+          - {kind: lead, lead: 144, member: 0, seg: "L144a", start: "2024-01-01", end: "2024-12-31", stagger: 1}
+          - {kind: lead, lead: 144, member: 1, seg: "L144a", start: "2024-01-01", end: "2024-12-31", stagger: 3}
+          - {kind: lead, lead: 144, member: 2, seg: "L144a", start: "2024-01-01", end: "2024-12-31", stagger: 5}
+          - {kind: lead, lead: 144, member: 3, seg: "L144a", start: "2024-01-01", end: "2024-12-31", stagger: 7}
+          - {kind: lead, lead: 144, member: 4, seg: "L144a", start: "2024-01-01", end: "2024-12-31", stagger: 9}
+          - {kind: lead, lead: 144, member: 0, seg: "L144b", start: "2025-01-01", end: "2025-12-31", stagger: 11}
+          - {kind: lead, lead: 144, member: 1, seg: "L144b", start: "2025-01-01", end: "2025-12-31", stagger: 13}
+          - {kind: lead, lead: 144, member: 2, seg: "L144b", start: "2025-01-01", end: "2025-12-31", stagger: 15}
+          - {kind: lead, lead: 144, member: 3, seg: "L144b", start: "2025-01-01", end: "2025-12-31", stagger: 17}
+          - {kind: lead, lead: 144, member: 4, seg: "L144b", start: "2025-01-01", end: "2025-12-31", stagger: 19}
+          - {kind: lead, lead: 144, member: 0, seg: "L144c", start: "2026-01-01", end: "2026-08-07", stagger: 21}
+          - {kind: lead, lead: 144, member: 1, seg: "L144c", start: "2026-01-01", end: "2026-08-07", stagger: 23}
+          - {kind: lead, lead: 144, member: 2, seg: "L144c", start: "2026-01-01", end: "2026-08-07", stagger: 25}
+          - {kind: lead, lead: 144, member: 3, seg: "L144c", start: "2026-01-01", end: "2026-08-07", stagger: 27}
+          - {kind: lead, lead: 144, member: 4, seg: "L144c", start: "2026-01-01", end: "2026-08-07", stagger: 29}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 얕은 복제는 pull --rebase 를 깨뜨린다 (2026-07-24 사고)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install --quiet herbie-data pandas numpy
+      - name: Git identity
+        run: |
+          git config user.name "gefs-collector-bot"
+          git config user.email "actions@users.noreply.github.com"
+      - name: v2x m${{ matrix.member }}/${{ matrix.seg }}
+        if: matrix.kind == 'v2x'
+        run: >
+          python -X utf8 worker_v2x.py
+          --member ${{ matrix.member }} --seg ${{ matrix.seg }}
+          --start ${{ matrix.start }} --end ${{ matrix.end }}
+          --budget-min 300 --stagger ${{ matrix.stagger }}
+      - name: v2y m${{ matrix.member }}/${{ matrix.seg }}
+        if: matrix.kind == 'v2y'
+        run: >
+          python -X utf8 worker_v2y.py
+          --member ${{ matrix.member }} --seg ${{ matrix.seg }}
+          --start ${{ matrix.start }} --end ${{ matrix.end }}
+          --leads 24 --levels all
+          --budget-min 300 --stagger ${{ matrix.stagger }}
+      - name: lead${{ matrix.lead }} m${{ matrix.member }}/${{ matrix.seg }}
+        if: matrix.kind == 'lead'
+        run: >
+          python -X utf8 backfill_lead.py
+          --member ${{ matrix.member }} --lead ${{ matrix.lead }}
+          --start ${{ matrix.start }} --end ${{ matrix.end }}
+          --seg ${{ matrix.seg }}
+          --budget-min 320 --commit-every-min 20 --stagger ${{ matrix.stagger }}
+      - name: Final flush (죽어도 받은 만큼은 커밋)
+        if: always()
+        run: |
+          git add data/ || true
+          git commit -m "${{ matrix.kind }}${{ matrix.lead }} m${{ matrix.member }}/${{ matrix.seg }} final flush" || echo "no changes"
+          for i in 1 2 3 4 5 6 7 8; do
+            git push origin "HEAD:${{ github.ref_name }}" && break   # detached HEAD 안전형
+            git rebase --abort || true
+            git merge --abort || true
+            git fetch origin "${{ github.ref_name }}" && git merge --no-edit "origin/${{ github.ref_name }}" || git status --short
+            sleep $((3 + RANDOM % 10))
+          done

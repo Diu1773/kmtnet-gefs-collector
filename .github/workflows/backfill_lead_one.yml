@@ -1,0 +1,93 @@
+#  리드 하나씩 백필 (2024~2026) — 같은 파일 동시 append 를 막는 설계 (2026-08-11)
+#
+#  ⚠⚠ 왜 「하나씩」인가 — 앞선 두 워크플로가 조용히 자료를 절반 날렸다.
+#
+#  저장 경로는 `data/v2/{YYYY-MM}_m{M}.jsonl.gz` 이고 **리드가 파일명에 없다.**
+#  그래서 리드가 다른 레인이라도 같은 (달, 멤버)이면 **같은 파일에 append** 한다.
+#  15레인이 각자 `git pull --rebase --autostash && git push` 로 올리는 구조에서 같은
+#  gzip 파일을 동시에 고치면 병합이 한쪽을 버린다 — 마지막에 올린 레인만 살아남는다.
+#
+#  실측 피해 (2026-08-11, 원본 파일을 직접 세어 확인):
+#    · `backfill_lead72_168.yml` (리드 72·168 동시) → 리드 168 은 부족 92, **리드 72 는 부족 2,000**
+#      (필요 4,750 중 42% 유실). 경쟁에서 168 이 이겼다.
+#    · `backfill_2024_2026_rest.yml` (리드 48·96·120·144 동시) → 19,000 중 **9,588 유실(50%)**.
+#    · 단독으로 돈 리드 24 는 부족 0 — 완전하다. 가설이 정확히 재확인된다.
+#    · 증거: `data/v2/2024-01_m0.jsonl.gz` 에 리드 24·144·168 만 남고 48·96·120 은 사라졌다.
+#
+#  ⚠ 잡은 rc=0 으로 「성공」하고 로그도 `■ 끝 m0: ok 366 · fail 0` 을 찍는다. 워커는 자기가
+#    쓴 것만 알고, 병합에서 버려진 것은 모른다. **잡 성공은 자료 완성의 증거가 아니다** —
+#    반드시 원본 파일이나 창고에서 (리드, 멤버, 연도)별 개수를 세어 확인할 것.
+#
+#  이 워크플로의 규칙: **한 번 dispatch = 리드 하나.** 15레인(멤버 5 × 연 3)은 서로 다른
+#  (달, 멤버) 파일만 건드리므로 충돌하지 않는다. 리드 넷을 채우려면 넷을 차례로 돌린다.
+#  이미 받은 (cycle, lead) 는 자동 스킵이라 재dispatch 로 이어 달린다.
+name: GEFS backfill one lead (2024-2026)
+on:
+  workflow_dispatch:
+    inputs:
+      lead:
+        description: "리드 시간 (예: 48 · 96 · 120 · 144). 한 번에 하나만."
+        required: true
+        default: "48"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill-lead-one          # ★ 리드가 달라도 같은 그룹 — 동시 실행 자체를 막는다
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 15
+      matrix:
+        include:
+          - {member: 0, seg: "a", start: "2024-01-01", end: "2024-12-31", stagger: 0}
+          - {member: 1, seg: "a", start: "2024-01-01", end: "2024-12-31", stagger: 2}
+          - {member: 2, seg: "a", start: "2024-01-01", end: "2024-12-31", stagger: 4}
+          - {member: 3, seg: "a", start: "2024-01-01", end: "2024-12-31", stagger: 6}
+          - {member: 4, seg: "a", start: "2024-01-01", end: "2024-12-31", stagger: 8}
+          - {member: 0, seg: "b", start: "2025-01-01", end: "2025-12-31", stagger: 10}
+          - {member: 1, seg: "b", start: "2025-01-01", end: "2025-12-31", stagger: 12}
+          - {member: 2, seg: "b", start: "2025-01-01", end: "2025-12-31", stagger: 14}
+          - {member: 3, seg: "b", start: "2025-01-01", end: "2025-12-31", stagger: 16}
+          - {member: 4, seg: "b", start: "2025-01-01", end: "2025-12-31", stagger: 18}
+          - {member: 0, seg: "c", start: "2026-01-01", end: "2026-08-07", stagger: 20}
+          - {member: 1, seg: "c", start: "2026-01-01", end: "2026-08-07", stagger: 22}
+          - {member: 2, seg: "c", start: "2026-01-01", end: "2026-08-07", stagger: 24}
+          - {member: 3, seg: "c", start: "2026-01-01", end: "2026-08-07", stagger: 26}
+          - {member: 4, seg: "c", start: "2026-01-01", end: "2026-08-07", stagger: 28}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 얕은 복제는 pull --rebase 를 깨뜨린다 (2026-07-24 사고)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install --quiet herbie-data pandas numpy
+      - name: Git identity
+        run: |
+          git config user.name "gefs-collector-bot"
+          git config user.email "actions@users.noreply.github.com"
+      - name: Backfill lead${{ inputs.lead }} m${{ matrix.member }} ${{ matrix.seg }}
+        run: >
+          python -X utf8 backfill_lead.py
+          --member ${{ matrix.member }}
+          --lead ${{ inputs.lead }}
+          --start ${{ matrix.start }} --end ${{ matrix.end }}
+          --seg L${{ inputs.lead }}${{ matrix.seg }}
+          --budget-min 320
+          --commit-every-min 20 --stagger ${{ matrix.stagger }}
+      - name: Final flush (죽어도 받은 만큼은 커밋)
+        if: always()
+        run: |
+          git add data/ || true
+          git commit -m "lead${{ inputs.lead }} m${{ matrix.member }}/${{ matrix.seg }} final flush" || echo "no changes"
+          for i in 1 2 3 4 5 6 7 8; do
+            git pull --rebase --autostash && git push && break || sleep $((RANDOM % 20 + 5))
+          done

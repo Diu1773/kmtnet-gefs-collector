@@ -1,6 +1,20 @@
 name: GEFS backfill v2
 on:
   workflow_dispatch:
+    inputs:
+      # [2026-08-15] 최근 구간 레인. 매트릭스가 2017~2023 뿐이라 그 뒤 사이클은
+      #   이 워크플로가 6시간마다 돌아도 **아무것도 새로 받지 않는다** (전부 이미 있음 스킵).
+      #   그런데 대시보드가 필요한 것은 backfill_lead_one 이 주는 리드 하나가 아니라
+      #   worker_v2 가 주는 **야간 4시각(0·3·6·9 UT)** 이다 — 그건 이 워커만 받는다.
+      #   기본값은 이미 받은 하루라서, 안 주면 즉시 스킵돼 동작이 안 바뀐다.
+      recent_start:
+        description: "최근 구간 시작 (YYYY-MM-DD). 비우면 아무것도 안 받는다."
+        required: false
+        default: "2017-01-01"
+      recent_end:
+        description: "최근 구간 끝 (YYYY-MM-DD)."
+        required: false
+        default: "2017-01-01"
   schedule:
     - cron: "23 */6 * * *"
 
@@ -55,6 +69,11 @@ jobs:
           - {member: 2, seg: "s12c", start: "2023-01-01", end: "2023-12-31", stagger: 34}
           - {member: 3, seg: "s12c", start: "2023-01-01", end: "2023-12-31", stagger: 36}
           - {member: 4, seg: "s12c", start: "2023-01-01", end: "2023-07-31", stagger: 38}
+          - {member: 0, seg: "recent", start: "${{ inputs.recent_start || '2017-01-01' }}", end: "${{ inputs.recent_end || '2017-01-01' }}", stagger: 40}
+          - {member: 1, seg: "recent", start: "${{ inputs.recent_start || '2017-01-01' }}", end: "${{ inputs.recent_end || '2017-01-01' }}", stagger: 42}
+          - {member: 2, seg: "recent", start: "${{ inputs.recent_start || '2017-01-01' }}", end: "${{ inputs.recent_end || '2017-01-01' }}", stagger: 44}
+          - {member: 3, seg: "recent", start: "${{ inputs.recent_start || '2017-01-01' }}", end: "${{ inputs.recent_end || '2017-01-01' }}", stagger: 46}
+          - {member: 4, seg: "recent", start: "${{ inputs.recent_start || '2017-01-01' }}", end: "${{ inputs.recent_end || '2017-01-01' }}", stagger: 48}
     steps:
       - uses: actions/checkout@v4
         with:

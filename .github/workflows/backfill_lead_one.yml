@@ -29,6 +29,15 @@ on:
         description: "리드 시간 (예: 48 · 96 · 120 · 144). 한 번에 하나만."
         required: true
         default: "48"
+      end_2026:
+        # [2026-08-15] 2026 구간 끝을 dispatch 에서 정할 수 있게 했다.
+        #   그 전에는 "2026-08-07" 이 매트릭스에 박혀 있어, 그 뒤 사이클은 아무도 안 받았다.
+        #   상시 수집(collect.yml)은 cron 이 없고 v1 경로(data/gefs_ens.jsonl)에 쓰므로
+        #   v2 를 채우는 것은 이 워크플로뿐이다 → 최신까지 받으려면 여기서 날짜를 올린다.
+        #   기본값은 예전 값 그대로라 안 주면 동작이 안 바뀐다.
+        description: "2026 구간 끝 날짜 (YYYY-MM-DD). 최신까지 받으려면 어제 날짜."
+        required: false
+        default: "2026-08-07"
 
 permissions:
   contents: write
@@ -56,11 +65,11 @@ jobs:
           - {member: 2, seg: "b", start: "2025-01-01", end: "2025-12-31", stagger: 14}
           - {member: 3, seg: "b", start: "2025-01-01", end: "2025-12-31", stagger: 16}
           - {member: 4, seg: "b", start: "2025-01-01", end: "2025-12-31", stagger: 18}
-          - {member: 0, seg: "c", start: "2026-01-01", end: "2026-08-07", stagger: 20}
-          - {member: 1, seg: "c", start: "2026-01-01", end: "2026-08-07", stagger: 22}
-          - {member: 2, seg: "c", start: "2026-01-01", end: "2026-08-07", stagger: 24}
-          - {member: 3, seg: "c", start: "2026-01-01", end: "2026-08-07", stagger: 26}
-          - {member: 4, seg: "c", start: "2026-01-01", end: "2026-08-07", stagger: 28}
+          - {member: 0, seg: "c", start: "2026-01-01", end: "${{ inputs.end_2026 || '2026-08-07' }}", stagger: 20}
+          - {member: 1, seg: "c", start: "2026-01-01", end: "${{ inputs.end_2026 || '2026-08-07' }}", stagger: 22}
+          - {member: 2, seg: "c", start: "2026-01-01", end: "${{ inputs.end_2026 || '2026-08-07' }}", stagger: 24}
+          - {member: 3, seg: "c", start: "2026-01-01", end: "${{ inputs.end_2026 || '2026-08-07' }}", stagger: 26}
+          - {member: 4, seg: "c", start: "2026-01-01", end: "${{ inputs.end_2026 || '2026-08-07' }}", stagger: 28}
     steps:
       - uses: actions/checkout@v4
         with:

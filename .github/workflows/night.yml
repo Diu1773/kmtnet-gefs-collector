@@ -20,7 +20,10 @@ on:
         default: "300"
       workers:
         description: "동시 다운로드 스레드"
-        default: "10"
+        # ⚠ 10 으로 올려 봤지만 **안 빨라졌다** (2026-08-29 실측).
+        #    워커 6 = 836~991 작업/시간 · 워커 10 = 657~1025 (평균은 오히려 낮다).
+        #    GitHub 러너가 4 vCPU 라 6 에서 이미 포화다. 6 으로 되돌린다.
+        default: "6"
   schedule:
     - cron: "10 */6 * * *"        # 6시간마다 재개
 
@@ -64,7 +67,7 @@ jobs:
           MEMBER: ${{ matrix.member }}
           START: ${{ matrix.span.start }}
           END: ${{ matrix.span.end }}
-          WORKERS: ${{ inputs.workers || '10' }}
+          WORKERS: ${{ inputs.workers || '6' }}
           BUDGET_MIN: ${{ inputs.budget_min || '300' }}
           # 멤버 0~4 는 매일(정본). 멤버 5~30 은 3일마다 — 「멤버를 늘리면 버는가」를
           # 먼저 재려는 것이라 날짜를 솎는다. 값어치가 확인되면 이 값을 1 로 바꿔

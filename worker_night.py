@@ -257,8 +257,17 @@ def main():
     COMMIT_EVERY = int(os.environ.get("COMMIT_EVERY", "40"))
 
     leads = needed_leads()
-    cycles = [c.strftime("%Y-%m-%d %H:%M")
-              for c in pd.date_range(START, END, freq="D")]
+    # STRIDE · 발행일을 몇 일마다 받을지. 1 이면 매일.
+    #   멤버 5~30 은 「앙상블 멤버를 늘리는 것이 값어치가 있나」를 재려고 받는 것이지
+    #   그 자체가 최종 자료가 아니다. 날짜를 솎으면 그 질문에 훨씬 빨리 답할 수 있고,
+    #   답이 「값어치 있다」면 STRIDE 를 1 로 되돌려 그대로 이어받으면 된다(재개형).
+    #   솎아도 밤 대부분은 덮인다 — 발행일 하나가 앞으로 7일 밤을 덮기 때문이다.
+    STRIDE = max(1, int(os.environ.get("STRIDE", "1")))
+    cyc = pd.date_range(START, END, freq="D")
+    if STRIDE > 1:
+        # 기준을 START 가 아니라 고정 원점으로 잡는다 — 기간 분할이 달라도 같은 날을 고른다
+        cyc = cyc[((cyc - pd.Timestamp("2021-04-01")).days % STRIDE) == 0]
+    cycles = [c.strftime("%Y-%m-%d %H:%M") for c in cyc]
     seen = done_keys(M)
     todo = [(c, f) for c in cycles for f in leads if (c, f) not in seen]
     print(f"[m{M}] 리드 {len(leads)}개 · 사이클 {len(cycles):,} · "

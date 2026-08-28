@@ -66,6 +66,10 @@ jobs:
           END: ${{ matrix.span.end }}
           WORKERS: ${{ inputs.workers || '10' }}
           BUDGET_MIN: ${{ inputs.budget_min || '300' }}
+          # 멤버 0~4 는 매일(정본). 멤버 5~30 은 3일마다 — 「멤버를 늘리면 버는가」를
+          # 먼저 재려는 것이라 날짜를 솎는다. 값어치가 확인되면 이 값을 1 로 바꿔
+          # 그대로 이어받는다 (재개형이라 받은 것은 다시 안 받는다).
+          STRIDE: ${{ matrix.member >= 5 && '3' || '1' }}
           COMMIT_EVERY: "40"
           BRANCH: master
         run: python -u worker_night.py

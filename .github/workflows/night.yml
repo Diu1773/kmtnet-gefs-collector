@@ -5,8 +5,12 @@ name: GEFS night (3h in-night sampling)
 #   · 멤버 5 · 격자 점 1개 (사용자 지시). 늘리는 것은 밤 시각과 변수뿐
 #   · 재개형: 이미 받은 (cycle, lead) 는 건너뛴다 → 그냥 다시 돌리면 이어서 받는다
 #
-# 레인 = 멤버 5 × 기간 4분할 = 20 (GitHub 무료 동시 job 상한)
+# 레인 = 멤버 31 × 기간 4분할 = 124 job. GitHub 무료 동시 상한이 20이라
+#   20개씩 돌고 나머지는 큐에서 대기한다 (한 run 이 며칠 걸리는 것이 정상).
 # 한 세션 5시간(=BUDGET_MIN 300) 뒤 스스로 커밋하고 끝난다. cron 이 다시 띄운다.
+#
+# ⚠ 멤버 0 만 atmos.25 를 추가로 받는다(worker_night.py fetch_unit).
+#    멤버 1~30 은 산출물 2개라 작업당 비용이 2/3 다.
 
 on:
   workflow_dispatch:
@@ -16,7 +20,7 @@ on:
         default: "300"
       workers:
         description: "동시 다운로드 스레드"
-        default: "6"
+        default: "10"
   schedule:
     - cron: "10 */6 * * *"        # 6시간마다 재개
 
@@ -35,7 +39,8 @@ jobs:
       fail-fast: false
       max-parallel: 20
       matrix:
-        member: [0, 1, 2, 3, 4]
+        member: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
         span:
           - { start: "2021-04-01", end: "2022-06-30" }
           - { start: "2022-07-01", end: "2023-09-30" }
@@ -59,7 +64,7 @@ jobs:
           MEMBER: ${{ matrix.member }}
           START: ${{ matrix.span.start }}
           END: ${{ matrix.span.end }}
-          WORKERS: ${{ inputs.workers || '6' }}
+          WORKERS: ${{ inputs.workers || '10' }}
           BUDGET_MIN: ${{ inputs.budget_min || '300' }}
           COMMIT_EVERY: "40"
           BRANCH: master

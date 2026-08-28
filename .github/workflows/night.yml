@@ -1,0 +1,66 @@
+name: GEFS night (3h in-night sampling)
+
+# 밤 안 3시간 간격 + 변수 확장 수집 (2026-08-28).
+#   · worker_night.py 가 data/night/ 에 쓴다 — worker_v2 의 data/v2 와 안 섞인다
+#   · 멤버 5 · 격자 점 1개 (사용자 지시). 늘리는 것은 밤 시각과 변수뿐
+#   · 재개형: 이미 받은 (cycle, lead) 는 건너뛴다 → 그냥 다시 돌리면 이어서 받는다
+#
+# 레인 = 멤버 5 × 기간 4분할 = 20 (GitHub 무료 동시 job 상한)
+# 한 세션 5시간(=BUDGET_MIN 300) 뒤 스스로 커밋하고 끝난다. cron 이 다시 띄운다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      budget_min:
+        description: "세션 예산 (분). GitHub job 상한 6시간이라 300 권장"
+        default: "300"
+      workers:
+        description: "동시 다운로드 스레드"
+        default: "6"
+  schedule:
+    - cron: "10 */6 * * *"        # 6시간마다 재개
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gefs-night
+  cancel-in-progress: false
+
+jobs:
+  night:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        member: [0, 1, 2, 3, 4]
+        span:
+          - { start: "2021-04-01", end: "2022-06-30" }
+          - { start: "2022-07-01", end: "2023-09-30" }
+          - { start: "2023-10-01", end: "2025-02-28" }
+          - { start: "2025-03-01", end: "2026-08-14" }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # 얕은 클론이면 rebase 가 깨진다 (v2 수집에서 데인 것)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install --quiet herbie-data pandas numpy
+      - name: Git identity
+        run: |
+          git config user.name "gefs-collector-bot"
+          git config user.email "actions@users.noreply.github.com"
+      - name: Collect
+        env:
+          MEMBER: ${{ matrix.member }}
+          START: ${{ matrix.span.start }}
+          END: ${{ matrix.span.end }}
+          WORKERS: ${{ inputs.workers || '6' }}
+          BUDGET_MIN: ${{ inputs.budget_min || '300' }}
+          COMMIT_EVERY: "40"
+          BRANCH: master
+        run: python -u worker_night.py

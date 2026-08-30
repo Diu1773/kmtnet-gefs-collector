@@ -169,6 +169,9 @@ def _iter(d):
             yield var, lev, sv
 
 
+FAILWHY = {}   # 실패 이유별 횟수 — 커밋 메시지에 실어 보낸다
+
+
 def fetch_unit(cycle, fxx, member, retry=2):
     from herbie import Herbie
     for k in range(retry + 1):
@@ -200,10 +203,17 @@ def fetch_unit(cycle, fxx, member, retry=2):
         except Exception as e:
             s = str(e)
             if "Slow Down" in s or "503" in s or "429" in s:
+                FAILWHY["throttle(503/429)"] = FAILWHY.get("throttle(503/429)", 0) + 1
                 time.sleep(10 * (k + 1)); continue
             if k >= retry:
+                # ⚠ **이유를 남긴다.** 2026-08-30 에 구성원 4번만 62% 실패했는데
+                #   여기서 그냥 None 을 돌려주는 바람에 이유를 못 좁혔다.
+                #   AWS 에 자료는 있었다(직접 확인) — 그럼 무엇이 문제인지 알아야 한다.
+                key = f"{type(e).__name__}: {s[:60]}"
+                FAILWHY[key] = FAILWHY.get(key, 0) + 1
                 return None
             time.sleep(4)
+    FAILWHY["throttle 재시도 소진"] = FAILWHY.get("throttle 재시도 소진", 0) + 1
     return None
 
 
@@ -315,7 +325,11 @@ def main():
                 buf.clear()
                 el = time.time() - t0
                 rate = ok / el * 3600 if el else 0
-                commit_push(f"night m{M} ok {ok} fail {fail} ({rate:.0f}/h)")
+                why = ""
+                if FAILWHY:
+                    top = sorted(FAILWHY.items(), key=lambda kv: -kv[1])[:2]
+                    why = " | " + " · ".join(f"{k} x{v}" for k, v in top)
+                commit_push(f"night m{M} ok {ok} fail {fail} ({rate:.0f}/h){why}")
                 print(f"  ok {ok:,} fail {fail} · {el/60:.1f}분 · {rate:.0f}작업/시간", flush=True)
                 purge_cache()
     for yr, rows in buf.items():

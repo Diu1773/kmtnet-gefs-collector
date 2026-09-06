@@ -290,8 +290,19 @@ def check_wave(bad, info):
     #     그러니 이건 고장이 아니다. 「행렬을 줄일 것」이라고 하지 않는다.
     info["레인"] = len(live)
     if waiting:
-        info["물결"] = (f"러너 {len(live)}개 · 대기 {len(waiting)}개 — 이 계정의 "
-                        f"동시 상한이 {len(live)} 이다. 새 계정이면 돌릴수록 오른다.")
+        mp0 = _max_parallel()
+        # ★ **누적을 동시 상한이라 부르면 안 된다** (2026-09-07 고침).
+        #   `live` 는 「러너가 붙은 적 있는 잡」이라 **누적**이다. 잡 수가 슬롯보다
+        #   많아지면(28잡·19슬롯) 앞 잡이 끝나며 뒤가 이어받아 26·24 처럼 올라가고,
+        #   그걸 「이 계정의 동시 상한이 26」이라고 적어 **무료 상한 20 과 어긋나는
+        #   수를 내놓았다.** 대기열이 있는 판에서는 이 값으로 상한을 못 읽는다.
+        if mp0 is not None and len(js) > mp0:
+            info["물결"] = (f"러너가 붙은 잡 {len(live)}개(누적) · 대기 {len(waiting)}개 "
+                            f"— 잡 {len(js)}개가 슬롯 {mp0}개보다 많아 대기열이 도는 중이다. "
+                            f"이 수로는 계정 동시 상한을 읽을 수 없다(누적이라 상한을 넘는다).")
+        else:
+            info["물결"] = (f"러너 {len(live)}개 · 대기 {len(waiting)}개 — 이 계정의 "
+                            f"동시 상한이 {len(live)} 이다. 새 계정이면 돌릴수록 오른다.")
     elif len(starts) > 1:
         big = max(starts.values())
         tail = len(live) - big
